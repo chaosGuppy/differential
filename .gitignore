@@ -1,3 +1,7 @@
+# Project-specific
+db/
+pages/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,5 +220,3 @@ __marimo__/
 .streamlit/secrets.toml
 
 .history/
-db/
-pages/
