@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from models import (
+from differential.models import (
     Call, CallStatus, CallType, ConsiderationDirection,
     LinkType, Page, PageLayer, PageLink, PageType, Workspace,
 )

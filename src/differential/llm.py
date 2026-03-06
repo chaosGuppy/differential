@@ -7,7 +7,7 @@ from pathlib import Path
 
 import anthropic
 
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
 MODEL = "claude-opus-4-6"
 
 

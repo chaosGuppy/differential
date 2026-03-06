@@ -13,12 +13,12 @@ import json as _json
 from datetime import datetime
 from typing import Optional
 
-from context import build_call_context, build_context_for_question, build_prioritization_context, format_page
-from database import DB
-from executor import execute_all_moves
-from llm import build_system_prompt, build_user_message, run_call, run_llm
-from models import Call, CallStatus, Page, Workspace
-from parser import ParsedOutput, parse_output
+from differential.context import build_call_context, build_context_for_question, build_prioritization_context, format_page
+from differential.database import DB
+from differential.executor import execute_all_moves
+from differential.llm import build_system_prompt, build_user_message, run_call, run_llm
+from differential.models import Call, CallStatus, Page, Workspace
+from differential.parser import ParsedOutput, parse_output
 
 REVIEW_SYSTEM_PROMPT = """\
 You are a research assistant completing a closing review of a call you just made \

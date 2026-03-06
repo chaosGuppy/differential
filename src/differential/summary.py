@@ -4,12 +4,12 @@ Generate a human-readable executive summary of research on a question.
 from datetime import datetime
 from pathlib import Path
 
-from database import DB
-from llm import run_llm
-from models import PageType
+from differential.database import DB
+from differential.llm import run_llm
+from differential.models import PageType
 
-PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-SUMMARIES_DIR = Path(__file__).parent.parent / "pages" / "summaries"
+PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
+SUMMARIES_DIR = Path(__file__).parent.parent.parent / "pages" / "summaries"
 
 
 def _load_prompt_file(name: str) -> str:

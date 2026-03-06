@@ -4,9 +4,9 @@ Build context text from workspace pages for injection into LLM prompts.
 import json
 from typing import Optional
 
-from database import DB
-from models import Page, PageLink, PageType, Workspace
-from workspace_map import build_workspace_map
+from differential.database import DB
+from differential.models import Page, PageLink, PageType, Workspace
+from differential.workspace_map import build_workspace_map
 
 
 def format_page(page: Page, db: Optional[DB] = None) -> str:

@@ -6,14 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from database import DB
-from models import (
+from differential.database import DB
+from differential.models import (
     Call, ConsiderationDirection, LinkType,
     Page, PageLayer, PageLink, PageType, Workspace,
 )
-from parser import Move
+from differential.parser import Move
 
-PAGES_DIR = Path(__file__).parent.parent / "pages"
+PAGES_DIR = Path(__file__).parent.parent.parent / "pages"
 
 
 def _pages_dir(workspace: Workspace) -> Path:
