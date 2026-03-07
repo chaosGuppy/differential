@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/ruff_check.sh"
+            "command": "[[ \"$CLAUDE_TOOL_INPUT_FILE_PATH\" != *.py ]] && exit 0; uv run ruff check --fix \"$CLAUDE_TOOL_INPUT_FILE_PATH\" && uv run ruff format \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/pyright_check.sh"
+            "command": "[[ \"$CLAUDE_TOOL_INPUT_FILE_PATH\" != *.py ]] && exit 0; uv run pyright \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
           }
         ]
       }

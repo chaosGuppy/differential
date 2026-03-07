@@ -1,5 +1,5 @@
 """Prioritization call: plan budget allocation across questions."""
-from differential.calls.common import _complete_call
+from differential.calls.common import complete_call
 from differential.context import build_prioritization_context
 from differential.database import DB
 from differential.executor import execute_all_moves
@@ -39,5 +39,5 @@ def run_prioritization(
         "moves_created": len(parsed.moves),
     }
 
-    _complete_call(call, db, f"Prioritization complete. Planned {len(parsed.dispatches)} dispatches.")
+    complete_call(call, db, f"Prioritization complete. Planned {len(parsed.dispatches)} dispatches.")
     return summary

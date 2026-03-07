@@ -2,8 +2,8 @@
 import json as _json
 
 from differential.calls.common import (
-    _complete_call, _dedup, _format_extra_pages, _print_page_ratings,
-    _run_closing_review, _run_phase1, _run_with_loading, _PHASE1_TASK,
+    complete_call, dedup, format_extra_pages, print_page_ratings,
+    run_closing_review, run_phase1, run_with_loading, PHASE1_TASK,
 )
 from differential.context import build_call_context
 from differential.database import DB
@@ -47,13 +47,13 @@ def run_ingest(
         f"Source page ID: `{source_page.id}`"
     )
 
-    phase1_user = build_user_message(context_text, _PHASE1_TASK)
-    phase1_raw, short_load_ids = _run_phase1(system_prompt, phase1_user)
+    phase1_user = build_user_message(context_text, PHASE1_TASK)
+    phase1_raw, short_load_ids = run_phase1(system_prompt, phase1_user)
 
     full_load_ids = [short_id_map[s] for s in short_load_ids if s in short_id_map]
     valid_load_ids = [pid for pid in full_load_ids if db.get_page(pid)]
 
-    extra_pages_text = _format_extra_pages(valid_load_ids, db)
+    extra_pages_text = format_extra_pages(valid_load_ids, db)
     phase2_user = (
         (f"## Loaded Pages\n\n{extra_pages_text}\n\n---\n\n") if extra_pages_text else ""
     ) + "Perform your main task now. You may use LOAD_PAGE if you need additional pages.\n\n" + task
@@ -63,18 +63,18 @@ def run_ingest(
         {"role": "assistant", "content": phase1_raw or "(no preliminary analysis)"},
         {"role": "user",      "content": phase2_user},
     ]
-    raw, parsed, phase2_ids = _run_with_loading(system_prompt, messages, short_id_map, db)
+    raw, parsed, phase2_ids = run_with_loading(system_prompt, messages, short_id_map, db)
 
     db.update_call_status(call.id, CallStatus.RUNNING)
     created = execute_all_moves(parsed, call, db)
 
-    all_loaded_ids = _dedup(preloaded + valid_load_ids + phase2_ids)
-    review = _run_closing_review(call, raw, context_text, all_loaded_ids, db)
+    all_loaded_ids = dedup(preloaded + valid_load_ids + phase2_ids)
+    review = run_closing_review(call, raw, context_text, all_loaded_ids, db)
     if review:
         print(f"  [review] confidence={review.get('confidence_in_output', '?')}, "
               f"remaining_fruit={review.get('remaining_fruit', '?')}")
-        _print_page_ratings(review)
+        print_page_ratings(review)
 
     call.review_json = _json.dumps(review or {})
-    _complete_call(call, db, f"Ingest complete. Created {len(created)} pages from '{filename}'.")
+    complete_call(call, db, f"Ingest complete. Created {len(created)} pages from '{filename}'.")
     return parsed, review or {}

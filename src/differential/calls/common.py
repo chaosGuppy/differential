@@ -1,9 +1,8 @@
-"""
-Shared utilities for call types.
-"""
-import json as _json
+"""Shared utilities for call types."""
+
 from datetime import datetime
-from typing import Optional
+
+from anthropic.types import MessageParam
 
 from differential.context import format_page
 from differential.database import DB
@@ -15,16 +14,16 @@ REVIEW_SYSTEM_PROMPT = """\
 You are a research assistant completing a closing review of a call you just made \
 in a collaborative research workspace. Be honest and specific in your self-assessment."""
 
-_PHASE1_TASK = (
+PHASE1_TASK = (
     "Perform your preliminary analysis now. Review the workspace map above and use "
     "LOAD_PAGE moves if you need full content from other pages. Write any planning "
     "notes. The main task description will follow in the next turn."
 )
 
-_MAX_LOAD_ROUNDS = 3
+MAX_LOAD_ROUNDS = 3
 
 
-def _dedup(ids: list[str]) -> list[str]:
+def dedup(ids: list[str]) -> list[str]:
     """Deduplicate a list of IDs preserving order."""
     seen: set[str] = set()
     result = []
@@ -35,7 +34,7 @@ def _dedup(ids: list[str]) -> list[str]:
     return result
 
 
-def _print_page_ratings(review: dict) -> None:
+def print_page_ratings(review: dict) -> None:
     ratings = review.get("page_ratings", [])
     if not ratings:
         return
@@ -48,20 +47,20 @@ def _print_page_ratings(review: dict) -> None:
         print(f"  [page] {pid} [{label}]: {note}")
 
 
-def _complete_call(call: Call, db: DB, summary: str) -> None:
+def complete_call(call: Call, db: DB, summary: str) -> None:
     call.status = CallStatus.COMPLETE
     call.completed_at = datetime.utcnow()
     call.result_summary = summary
     db.save_call(call)
 
 
-def _run_closing_review(
+def run_closing_review(
     call: Call,
     main_output: str,
     context_text: str,
-    loaded_page_ids: Optional[list[str]] = None,
-    db: Optional[DB] = None,
-) -> Optional[dict]:
+    loaded_page_ids: list[str] | None = None,
+    db: DB | None = None,
+) -> dict | None:
     """
     Run the closing review as a separate prompt. Free (not counted against budget).
     """
@@ -74,14 +73,14 @@ def _run_closing_review(
                 page_lines.append(f'  - `{pid[:8]}`: "{page.summary[:120]}"')
         if page_lines:
             page_rating_prompt = (
-                f"\n\nThe following pages were loaded into your context beyond the base "
-                f"working context:\n" + "\n".join(page_lines) +
-                f"\n\nFor each, include a rating in your review JSON:\n"
-                f'  "page_ratings": [\n'
-                f'    {{"page_id": "SHORT_ID", "score": N, "note": "one sentence"}}\n'
-                f'  ]\n'
-                f"Scores: -1 = actively confusing, 0 = didn't help, "
-                f"1 = helped, 2 = extremely helpful"
+                "\n\nThe following pages were loaded into your context beyond the base "
+                "working context:\n" + "\n".join(page_lines) +
+                "\n\nFor each, include a rating in your review JSON:\n"
+                '  "page_ratings": [\n'
+                '    {"page_id": "SHORT_ID", "score": N, "note": "one sentence"}\n'
+                '  ]\n'
+                "Scores: -1 = actively confusing, 0 = didn't help, "
+                "1 = helped, 2 = extremely helpful"
             )
 
     page_ratings_field = (
@@ -135,7 +134,7 @@ def _run_closing_review(
         return None
 
 
-def _run_phase1(
+def run_phase1(
     system_prompt: str,
     phase1_user_msg: str,
 ) -> tuple[str, list[str]]:
@@ -157,7 +156,7 @@ def _run_phase1(
         return "", []
 
 
-def _format_extra_pages(page_ids: list[str], db: DB) -> str:
+def format_extra_pages(page_ids: list[str], db: DB) -> str:
     """Format a list of pages (full UUIDs) as readable text for phase 2 context."""
     parts = []
     for pid in page_ids:
@@ -167,7 +166,7 @@ def _format_extra_pages(page_ids: list[str], db: DB) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _resolve_load_requests(
+def resolve_load_requests(
     parsed: ParsedOutput,
     short_id_map: dict[str, str],
     db: DB,
@@ -191,9 +190,9 @@ def _resolve_load_requests(
     return valid_ids
 
 
-def _run_with_loading(
+def run_with_loading(
     system_prompt: str,
-    initial_messages: list[dict],
+    initial_messages: list[MessageParam],
     short_id_map: dict[str, str],
     db: DB,
     max_tokens: int = 4096,
@@ -202,7 +201,7 @@ def _run_with_loading(
     messages = list(initial_messages)
     all_loaded: list[str] = []
 
-    for round_num in range(_MAX_LOAD_ROUNDS + 1):
+    for round_num in range(MAX_LOAD_ROUNDS + 1):
         raw = run_llm(system_prompt=system_prompt, messages=messages, max_tokens=max_tokens)
         parsed = parse_output(raw)
 
@@ -210,17 +209,17 @@ def _run_with_loading(
         if not load_page_moves:
             return raw, parsed, all_loaded
 
-        if round_num == _MAX_LOAD_ROUNDS:
-            print(f"  [phase2] Max load rounds ({_MAX_LOAD_ROUNDS}) reached — proceeding.")
+        if round_num == MAX_LOAD_ROUNDS:
+            print(f"  [phase2] Max load rounds ({MAX_LOAD_ROUNDS}) reached — proceeding.")
             return raw, parsed, all_loaded
 
-        valid_ids = _resolve_load_requests(parsed, short_id_map, db)
+        valid_ids = resolve_load_requests(parsed, short_id_map, db)
         all_loaded.extend(valid_ids)
         print(f"  [phase2] Round {round_num + 1}: loading {len(valid_ids)} page(s) "
               f"({len(load_page_moves)} requested)...")
 
-        extra_text = _format_extra_pages(valid_ids, db) if valid_ids else ""
-        is_last = (round_num + 1 == _MAX_LOAD_ROUNDS)
+        extra_text = format_extra_pages(valid_ids, db) if valid_ids else ""
+        is_last = (round_num + 1 == MAX_LOAD_ROUNDS)
         follow_up = (
             (f"## Additional Loaded Pages\n\n{extra_text}\n\n---\n\n" if extra_text else "")
             + ("This is the final loading round — complete your task now, do not use LOAD_PAGE further."
@@ -230,4 +229,4 @@ def _run_with_loading(
         messages.append({"role": "assistant", "content": raw})
         messages.append({"role": "user",      "content": follow_up})
 
-    return raw, parsed, all_loaded
+    raise RuntimeError("Unreachable: loading loop exhausted without returning")
