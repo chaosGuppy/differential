@@ -24,4 +24,6 @@ packages = ["src/differential"]
 [dependency-groups]
 dev = [
     "ruff>=0.15.5",
+    "pytest>=8.0",
+    "pytest-mock>=3.15.1",
 ]

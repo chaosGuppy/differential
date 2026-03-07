@@ -8,7 +8,7 @@ from pathlib import Path
 import anthropic
 
 PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
-MODEL = "claude-opus-4-6"
+MODEL = "claude-haiku-4-5-20251001" if os.environ.get("DIFFERENTIAL_TEST_MODE") else "claude-opus-4-6"
 
 
 def _load_file(name: str) -> str:

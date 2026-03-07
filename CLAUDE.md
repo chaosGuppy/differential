@@ -29,7 +29,7 @@ uv run python main.py --map QUESTION_ID
 uv run python main.py --summary QUESTION_ID
 ```
 
-No test suite, no linter, no build step. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
+Tests: `uv run pytest`. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
 
 ## Architecture
 
@@ -39,7 +39,7 @@ No test suite, no linter, no build step. Optional dependency: `pypdf` for PDF in
 
 **Core loop** (`src/differential/orchestrator.py`): `Orchestrator.run()` → `investigate_question()` recursively. Runs a free prioritization call to plan budget allocation, then dispatches scout/assess/sub-prioritization calls. Budget is a global counter in the DB; each scout/assess/ingest call costs 1 unit. Prioritization and closing reviews are free.
 
-**Call types** (`src/differential/calls.py`): Scout, Assess, Prioritization, Ingest. Scout and Assess use a two-phase pattern:
+**Call types** (`src/differential/calls/`): Package with one module per call type (`scout.py`, `assess.py`, `prioritization.py`, `ingest.py`) plus `common.py` for shared utilities (phase management, closing reviews, page loading). Public API re-exported from `__init__.py`. Scout, Assess, and Ingest use a two-phase pattern:
 - Phase 1 (free): LLM sees workspace map + working context, can request pages via LOAD_PAGE, writes planning notes
 - Phase 2 (costs 1 budget): continues conversation with loaded pages, does real work. Supports iterative LOAD_PAGE within phase 2 (up to 3 rounds).
 
