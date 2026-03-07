@@ -199,7 +199,7 @@ def _link_consideration(payload: dict, db: DB) -> None:
         reasoning=payload.get("reasoning", ""),
     )
     db.save_link(link)
-    print(f"  [~] Consideration link: {claim_id[:8]} -> {question_id[:8]} ({direction_str})")
+    print(f"  [~] Consideration: {db.page_label(claim_id)} -> {db.page_label(question_id)} ({direction_str})")
 
 
 def _link_pages(payload: dict, db: DB, link_type: LinkType) -> None:
@@ -222,7 +222,7 @@ def _link_pages(payload: dict, db: DB, link_type: LinkType) -> None:
         reasoning=payload.get("reasoning", ""),
     )
     db.save_link(link)
-    print(f"  [~] {link_type.value} link: {from_id[:8]} -> {to_id[:8]}")
+    print(f"  [~] {link_type.value}: {db.page_label(from_id)} -> {db.page_label(to_id)}")
 
 
 def _supersede(payload: dict, call: Call, db: DB) -> None:
@@ -239,7 +239,7 @@ def _supersede(payload: dict, call: Call, db: DB) -> None:
     # Create the new page first
     new_id = _create_page(payload, call, db, old_page.page_type, old_page.layer)
     db.supersede_page(old_id, new_id)
-    print(f"  [~] Superseded {old_id[:8]} -> {new_id[:8]}")
+    print(f"  [~] Superseded {db.page_label(old_id)} -> {db.page_label(new_id)}")
 
 
 def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
@@ -278,7 +278,7 @@ def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
     )
     db.save_page(claim)
     _write_page_file(claim)
-    print(f"  [+] hypothesis claim: {claim.summary[:70]} [{claim.id[:8]}]")
+    print(f"  [+] hypothesis claim: {db.page_label(claim.id)}")
 
     try:
         direction = ConsiderationDirection(direction_str)
@@ -293,7 +293,7 @@ def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
         strength=strength,
         reasoning=reasoning,
     ))
-    print(f"  [~] Consideration link: {claim.id[:8]} -> {parent_id[:8]} ({direction_str})")
+    print(f"  [~] Consideration: {db.page_label(claim.id)} -> {db.page_label(parent_id)} ({direction_str})")
 
     # 2. Create the hypothesis question (investigation vehicle)
     q_text = f"What should we make of the hypothesis that {hypothesis_text}?"
@@ -312,7 +312,7 @@ def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
     )
     db.save_page(question)
     _write_page_file(question)
-    print(f"  [+] hypothesis question: {question.summary[:70]} [{question.id[:8]}]")
+    print(f"  [+] hypothesis question: {db.page_label(question.id)}")
 
     db.save_link(PageLink(
         from_page_id=parent_id,
@@ -320,7 +320,7 @@ def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
         link_type=LinkType.CHILD_QUESTION,
         reasoning=f"Hypothesis: {hypothesis_text[:80]}",
     ))
-    print(f"  [~] child_question link: {parent_id[:8]} -> {question.id[:8]}")
+    print(f"  [~] child_question: {db.page_label(parent_id)} -> {db.page_label(question.id)}")
 
     return question.id
 

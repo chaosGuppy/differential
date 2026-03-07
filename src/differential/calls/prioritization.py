@@ -18,7 +18,7 @@ def run_prioritization(
     Run a Prioritization call.
     Returns a summary dict including the list of dispatches.
     """
-    print(f"\n[PRIORITIZATION] {call.id[:8]} — scope {scope_question_id[:8]} — budget {budget}")
+    print(f"\n[PRIORITIZATION] {call.id[:8]} — {db.page_label(scope_question_id)} — budget {budget}")
 
     context_text = build_prioritization_context(db, scope_question_id=scope_question_id)
 

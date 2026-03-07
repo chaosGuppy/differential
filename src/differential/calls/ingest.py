@@ -26,7 +26,7 @@ def run_ingest(
     extra = _json.loads(source_page.extra) if source_page.extra else {}
     filename = extra.get("filename", source_page.id[:8])
 
-    print(f"\n[INGEST] {call.id[:8]} — source '{filename}' -> question {question_id[:8]}")
+    print(f"\n[INGEST] {call.id[:8]} — source '{filename}' -> {db.page_label(question_id)}")
 
     preloaded = _json.loads(call.context_page_ids or "[]")
     system_prompt = build_system_prompt("ingest")
@@ -48,7 +48,7 @@ def run_ingest(
     )
 
     phase1_user = build_user_message(context_text, PHASE1_TASK)
-    phase1_raw, short_load_ids = run_phase1(system_prompt, phase1_user)
+    phase1_raw, short_load_ids = run_phase1(system_prompt, phase1_user, short_id_map, db)
 
     full_load_ids = [short_id_map[s] for s in short_load_ids if s in short_id_map]
     valid_load_ids = [pid for pid in full_load_ids if db.get_page(pid)]
@@ -73,7 +73,7 @@ def run_ingest(
     if review:
         print(f"  [review] confidence={review.get('confidence_in_output', '?')}, "
               f"remaining_fruit={review.get('remaining_fruit', '?')}")
-        print_page_ratings(review)
+        print_page_ratings(review, db)
 
     call.review_json = _json.dumps(review or {})
     complete_call(call, db, f"Ingest complete. Created {len(created)} pages from '{filename}'.")

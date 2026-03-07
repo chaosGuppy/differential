@@ -35,17 +35,19 @@ def dedup(ids: list[str]) -> list[str]:
     return result
 
 
-def print_page_ratings(review: dict) -> None:
+def print_page_ratings(review: dict, db: DB) -> None:
     ratings = review.get("page_ratings", [])
     if not ratings:
         return
     score_labels = {-1: "confusing", 0: "no help", 1: "helpful", 2: "very helpful"}
     for r in ratings:
         pid = r.get("page_id", "?")
+        resolved = db.resolve_page_id(pid) if pid != "?" else None
+        page_label = db.page_label(resolved or pid) if resolved else f"[{pid}]"
         score = r.get("score", "?")
         note = r.get("note", "")
         label = score_labels.get(score, str(score))
-        print(f"  [page] {pid} [{label}]: {note}")
+        print(f"  [page] {page_label} [{label}]: {note}")
 
 
 def complete_call(call: Call, db: DB, summary: str) -> None:
@@ -138,6 +140,8 @@ def run_closing_review(
 def run_phase1(
     system_prompt: str,
     phase1_user_msg: str,
+    short_id_map: dict[str, str] | None = None,
+    db: DB | None = None,
 ) -> tuple[str, list[str]]:
     """Preliminary analysis. Returns (raw_response, short_load_ids). Free."""
     try:
@@ -147,7 +151,11 @@ def run_phase1(
             max_tokens=2048,
         )
         load_ids = parse_output(raw).load_page_ids
-        if load_ids:
+        if load_ids and db and short_id_map:
+            labels = [db.page_label(short_id_map[s]) if s in short_id_map else f'[{s}]'
+                      for s in load_ids]
+            print(f"  [phase1] Requested pages: {', '.join(labels)}")
+        elif load_ids:
             print(f"  [phase1] Requested pages: {load_ids}")
         return raw, load_ids
     except Exception as e:
