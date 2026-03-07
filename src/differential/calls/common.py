@@ -10,9 +10,10 @@ from differential.llm import build_user_message, run_llm
 from differential.models import Call, CallStatus
 from differential.parser import ParsedOutput, parse_output
 
-REVIEW_SYSTEM_PROMPT = """\
-You are a research assistant completing a closing review of a call you just made \
-in a collaborative research workspace. Be honest and specific in your self-assessment."""
+REVIEW_SYSTEM_PROMPT = (
+    "You are a research assistant completing a closing review of a call you just made "
+    "in a collaborative research workspace. Be honest and specific in your self-assessment."
+)
 
 PHASE1_TASK = (
     "Perform your preliminary analysis now. Review the workspace map above and use "
@@ -91,23 +92,23 @@ def run_closing_review(
     review_task = (
         f"You have just completed a {call.call_type.value} call.\n\n"
         f"Here is your output from that call:\n{main_output}\n\n"
-        f"Please produce a closing review in this exact format:\n\n"
-        f"<review>\n"
-        f"{{\n"
-        f'  "remaining_fruit": <0-10 integer — how much useful work remains on this scope>\n'
-        f'    // Scale: 0 = nothing more to add; 1-2 = close to exhausted, only marginal additions expected;\n'
-        f'    // 3-4 = most significant angles covered, incremental gains likely;\n'
-        f'    // 5-6 = good coverage so far, diminishing but real returns expected;\n'
-        f'    // 7-8 = substantial work remains, clear gaps visible; 9-10 = barely started\n'
-        f'  "confidence_in_output": <0-5 float>,\n'
-        f'  "context_was_adequate": <true/false>,\n'
-        f'  "what_was_missing": "<optional: what additional context would have helped>",\n'
-        f'  "tensions_noticed": "<optional: any conflicts or inconsistencies you noticed>",\n'
-        f'  "self_assessment": "<1-2 sentences on how this call went>",\n'
-        f'  "suggested_next_steps": "<optional: what should happen next>"\n'
+        "Please produce a closing review in this exact format:\n\n"
+        "<review>\n"
+        "{\n"
+        '  "remaining_fruit": <0-10 integer — how much useful work remains on this scope>\n'
+        '    // Scale: 0 = nothing more to add; 1-2 = close to exhausted, only marginal additions expected;\n'
+        '    // 3-4 = most significant angles covered, incremental gains likely;\n'
+        '    // 5-6 = good coverage so far, diminishing but real returns expected;\n'
+        '    // 7-8 = substantial work remains, clear gaps visible; 9-10 = barely started\n'
+        '  "confidence_in_output": <0-5 float>,\n'
+        '  "context_was_adequate": <true/false>,\n'
+        '  "what_was_missing": "<optional: what additional context would have helped>",\n'
+        '  "tensions_noticed": "<optional: any conflicts or inconsistencies you noticed>",\n'
+        '  "self_assessment": "<1-2 sentences on how this call went>",\n'
+        '  "suggested_next_steps": "<optional: what should happen next>"\n'
         f"{page_ratings_field}"
-        f"}}\n"
-        f"</review>"
+        "}\n"
+        "</review>"
         f"{page_rating_prompt}"
     )
 

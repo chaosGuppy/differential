@@ -39,7 +39,7 @@ def _write_page_file(page: Page) -> None:
 
     lines = [
         f"# {page.summary}",
-        f"",
+        "",
         f"**Type:** {page.page_type.value}  ",
         f"**Layer:** {page.layer.value}  ",
         f"**ID:** `{page.id}`  ",
@@ -250,7 +250,7 @@ def _propose_hypothesis(payload: dict, call: Call, db: DB) -> Optional[str]:
 
     hypothesis_text = payload.get("hypothesis", "").strip()
     if not hypothesis_text:
-        print(f"  [executor] PROPOSE_HYPOTHESIS: missing hypothesis text")
+        print("  [executor] PROPOSE_HYPOTHESIS: missing hypothesis text")
         return None
 
     reasoning = payload.get("reasoning", "")

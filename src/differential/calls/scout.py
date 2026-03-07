@@ -29,7 +29,7 @@ def run_scout(
     context_text, short_id_map = build_call_context(question_id, db, extra_page_ids=preloaded)
 
     task = (
-        f"Scout for missing considerations on this question.\n\n"
+        "Scout for missing considerations on this question.\n\n"
         f"Question ID (use this when linking considerations): `{question_id}`"
     )
 

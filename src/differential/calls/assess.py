@@ -29,11 +29,11 @@ def run_assess(
     context_text, short_id_map = build_call_context(question_id, db, extra_page_ids=preloaded)
 
     task = (
-        f"Assess this question and render a judgement.\n\n"
+        "Assess this question and render a judgement.\n\n"
         f"Question ID: `{question_id}`\n\n"
-        f"Synthesise the considerations, weigh evidence on multiple sides, "
-        f"and produce a judgement with structured confidence. "
-        f"Even if uncertain, commit to a position."
+        "Synthesise the considerations, weigh evidence on multiple sides, "
+        "and produce a judgement with structured confidence. "
+        "Even if uncertain, commit to a position."
     )
 
     phase1_user = build_user_message(context_text, PHASE1_TASK)

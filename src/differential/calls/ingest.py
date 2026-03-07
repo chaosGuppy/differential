@@ -34,7 +34,7 @@ def run_ingest(
     question_context, short_id_map = build_call_context(question_id, db, extra_page_ids=preloaded)
 
     source_section = (
-        f"\n\n---\n\n## Source Document\n\n"
+        "\n\n---\n\n## Source Document\n\n"
         f"**File:** {filename}  \n"
         f"**Source page ID:** `{source_page.id}`\n\n"
         f"{source_page.content}"
@@ -42,7 +42,7 @@ def run_ingest(
     context_text = question_context + source_section
 
     task = (
-        f"Extract considerations from the source document above for this question.\n\n"
+        "Extract considerations from the source document above for this question.\n\n"
         f"Question ID: `{question_id}`\n"
         f"Source page ID: `{source_page.id}`"
     )

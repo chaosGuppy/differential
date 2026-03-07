@@ -81,7 +81,7 @@ def scout_until_done(
               f"remaining_fruit={remaining_fruit} (threshold={fruit_threshold})")
 
         if remaining_fruit <= fruit_threshold:
-            print(f"  [orchestrator] Fruit below threshold, stopping scout.")
+            print("  [orchestrator] Fruit below threshold, stopping scout.")
             break
 
     return rounds
@@ -119,7 +119,7 @@ def ingest_until_done(
               f"remaining_fruit={remaining_fruit} (threshold={fruit_threshold})")
 
         if remaining_fruit <= fruit_threshold:
-            print(f"  [orchestrator] Fruit below threshold, stopping ingest.")
+            print("  [orchestrator] Fruit below threshold, stopping ingest.")
             break
 
     return rounds
@@ -214,7 +214,7 @@ class Orchestrator:
             # Validate that the question ID actually exists
             if not self.db.get_page(d_question_id):
                 print(f"{indent}  [orchestrator] Skipping dispatch — question ID not found: {d_question_id[:8]}. "
-                      f"Falling back to scope question.")
+                      "Falling back to scope question.")
                 d_question_id = question_id
 
             if d_type == "scout":
