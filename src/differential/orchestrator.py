@@ -202,14 +202,15 @@ class Orchestrator:
             if budget_spent >= actual_budget or self.db.budget_remaining() <= 0:
                 break
 
-            d_type = dispatch.get("call_type", "").lower()
-            d_question_id = dispatch.get("question_id", question_id)
-            d_budget = int(dispatch.get("budget", 1))
-            d_reason = dispatch.get("reason", "")
-            d_context_ids = dispatch.get("context_page_ids", [])
+            d_type = dispatch.call_type
+            p = dispatch.payload
+            d_question_id = p.get("question_id", question_id)
+            d_budget = int(p.get("budget", 1))
+            d_reason = p.get("reason", "")
+            d_context_ids = p.get("context_page_ids", [])
             d_context_ids_json = json.dumps(d_context_ids)
-            d_fruit_threshold = int(dispatch.get("fruit_threshold", DEFAULT_FRUIT_THRESHOLD))
-            d_max_rounds = int(dispatch.get("max_rounds", DEFAULT_MAX_ROUNDS))
+            d_fruit_threshold = int(p.get("fruit_threshold", DEFAULT_FRUIT_THRESHOLD))
+            d_max_rounds = int(p.get("max_rounds", DEFAULT_MAX_ROUNDS))
 
             # Validate that the question ID actually exists
             if not self.db.get_page(d_question_id):
@@ -218,13 +219,13 @@ class Orchestrator:
                 d_question_id = question_id
 
             d_label = self.db.page_label(d_question_id)
-            if d_type == "scout":
+            if d_type == CallType.SCOUT:
                 print(f"{indent}  -> Dispatch: scout on {d_label} "
                       f"(fruit_threshold={d_fruit_threshold}, max_rounds={d_max_rounds}) — {d_reason}")
             else:
                 print(f"{indent}  -> Dispatch: {d_type} on {d_label} (budget={d_budget}) — {d_reason}")
 
-            if d_type == "scout":
+            if d_type is CallType.SCOUT:
                 spent = scout_until_done(
                     d_question_id, self.db,
                     max_rounds=d_max_rounds,
@@ -234,7 +235,7 @@ class Orchestrator:
                 )
                 budget_spent += spent
 
-            elif d_type == "assess":
+            elif d_type is CallType.ASSESS:
                 ok = assess_question(
                     d_question_id, self.db,
                     parent_call_id=p_call.id,
@@ -243,7 +244,7 @@ class Orchestrator:
                 if ok:
                     budget_spent += 1
 
-            elif d_type == "prioritization":
+            elif d_type is CallType.PRIORITIZATION:
                 self.investigate_question(
                     question_id=d_question_id,
                     budget=d_budget,
@@ -251,9 +252,6 @@ class Orchestrator:
                     depth=depth + 1,
                 )
                 budget_spent += d_budget
-
-            else:
-                print(f"{indent}  [orchestrator] Unknown dispatch type: {d_type}")
 
     def run(self, root_question_id: str) -> None:
         """Entry point. Investigate the root question with the full budget."""

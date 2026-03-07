@@ -51,11 +51,11 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 **Output parsing** (`src/differential/parser.py`): LLM output is XML-style `<move type="...">` tags containing JSON payloads. Also parses `<dispatch>` tags (from prioritization) and `<review>` tags (from closing reviews).
 
-**Move execution** (`src/differential/executor.py`): Takes parsed moves and writes pages/links to DB + markdown files to `pages/`. Supports `LAST_CREATED` placeholder for linking immediately after creation. Move types: CREATE_CLAIM, CREATE_QUESTION, CREATE_JUDGEMENT, CREATE_CONCEPT, LINK_CONSIDERATION, LINK_CHILD_QUESTION, SUPERSEDE_PAGE, FLAG_FUNNINESS, REPORT_DUPLICATE, LOAD_PAGE.
+**Move execution** (`src/differential/executor.py`): Takes parsed moves and writes pages/links to DB + markdown files to `pages/`. Supports `LAST_CREATED` placeholder for linking immediately after creation. See `MoveType` enum in `models.py` for the full list of moves.
 
 **Data layer** (`src/differential/database.py`): SQLite with WAL mode. Tables: pages, page_links, calls, budget, page_ratings, page_flags. `DB` class opens a new connection per method call. Has auto-migration for schema changes.
 
-**Data models** (`src/differential/models.py`): Dataclasses for Page, PageLink, Call. Key enums: PageType (source/claim/question/judgement/concept/wiki), CallType (scout/assess/prioritization/ingest/reframe/maintain), LinkType (consideration/child_question/supersedes/related), ConsiderationDirection (supports/opposes/neutral).
+**Data models** (`src/differential/models.py`): Dataclasses for Page, PageLink, Call. Key enums: PageType (source/claim/question/judgement/concept/wiki), CallType (scout/assess/prioritization/ingest/reframe/maintain), LinkType (consideration/child_question/supersedes/related), ConsiderationDirection (supports/opposes/neutral), MoveType (the full set of moves the LLM can emit). MoveType is the source of truth for valid moves — the parser validates against it and the executor dispatches on it. `DISPATCHABLE_CALL_TYPES` defines which `CallType`s prioritization can dispatch (scout/assess/prioritization) — the parser validates against it and the orchestrator dispatches on `CallType` enum values. The prompts document moves and dispatch types for the LLM but are not templated from the enums.
 
 **Context building** (`src/differential/context.py`): Assembles LLM context from DB state. `build_call_context()` prepends a compact workspace map (from `src/differential/workspace_map.py`) then detailed working context for the target question. `build_prioritization_context()` includes a question index with dispatchable IDs.
 

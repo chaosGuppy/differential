@@ -1,6 +1,6 @@
 ---
 description: Writing tests for the differential codebase
-user_invocable: false
+user_invocable: true
 ---
 
 # Writing Tests
