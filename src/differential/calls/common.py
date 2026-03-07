@@ -7,7 +7,7 @@ from anthropic.types import MessageParam
 from differential.context import format_page
 from differential.database import DB
 from differential.llm import build_user_message, run_llm
-from differential.models import Call, CallStatus
+from differential.models import Call, CallStatus, MoveType
 from differential.parser import ParsedOutput, parse_output
 
 REVIEW_SYSTEM_PROMPT = """\
@@ -175,7 +175,7 @@ def resolve_load_requests(
     valid_ids = []
     seen: set[str] = set()
     for move in parsed.moves:
-        if move.move_type != "LOAD_PAGE":
+        if move.move_type is not MoveType.LOAD_PAGE:
             continue
         pid = move.payload.get("page_id", "")
         if not pid:
@@ -205,7 +205,7 @@ def run_with_loading(
         raw = run_llm(system_prompt=system_prompt, messages=messages, max_tokens=max_tokens)
         parsed = parse_output(raw)
 
-        load_page_moves = [m for m in parsed.moves if m.move_type == "LOAD_PAGE"]
+        load_page_moves = [m for m in parsed.moves if m.move_type is MoveType.LOAD_PAGE]
         if not load_page_moves:
             return raw, parsed, all_loaded
 

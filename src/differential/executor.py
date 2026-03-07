@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from differential.database import DB
 from differential.models import (
-    Call, ConsiderationDirection, LinkType,
+    Call, ConsiderationDirection, LinkType, MoveType,
     Page, PageLayer, PageLink, PageType, Workspace,
 )
 from differential.parser import Move
@@ -82,53 +82,50 @@ def execute_move(move: Move, call: Call, db: DB, last_created_id: Optional[str] 
             for k, v in p.items()
         }
 
-    if mt == "CREATE_CLAIM":
+    if mt is MoveType.CREATE_CLAIM:
         return _create_page(p, call, db, PageType.CLAIM, PageLayer.SQUIDGY)
 
-    elif mt == "CREATE_QUESTION":
+    elif mt is MoveType.CREATE_QUESTION:
         return _create_page(p, call, db, PageType.QUESTION, PageLayer.SQUIDGY)
 
-    elif mt == "CREATE_JUDGEMENT":
+    elif mt is MoveType.CREATE_JUDGEMENT:
         return _create_page(p, call, db, PageType.JUDGEMENT, PageLayer.SQUIDGY)
 
-    elif mt == "CREATE_CONCEPT":
+    elif mt is MoveType.CREATE_CONCEPT:
         return _create_page(p, call, db, PageType.CONCEPT, PageLayer.SQUIDGY)
 
-    elif mt == "CREATE_WIKI_PAGE":
+    elif mt is MoveType.CREATE_WIKI_PAGE:
         return _create_page(p, call, db, PageType.WIKI, PageLayer.WIKI)
 
-    elif mt == "LINK_CONSIDERATION":
+    elif mt is MoveType.LINK_CONSIDERATION:
         _link_consideration(p, db)
 
-    elif mt == "LINK_CHILD_QUESTION":
+    elif mt is MoveType.LINK_CHILD_QUESTION:
         _link_pages(p, db, LinkType.CHILD_QUESTION)
 
-    elif mt == "LINK_RELATED":
+    elif mt is MoveType.LINK_RELATED:
         _link_pages(p, db, LinkType.RELATED)
 
-    elif mt == "SUPERSEDE_PAGE":
+    elif mt is MoveType.SUPERSEDE_PAGE:
         _supersede(p, call, db)
 
-    elif mt == "FLAG_FUNNINESS":
+    elif mt is MoveType.FLAG_FUNNINESS:
         note = p.get("note", "")
         page_id = db.resolve_page_id(p.get("page_id", ""))
         db.save_page_flag("funniness", call_id=call.id, note=note, page_id=page_id)
         print(f"  [flag] Funniness flagged: {note}")
 
-    elif mt == "REPORT_DUPLICATE":
+    elif mt is MoveType.REPORT_DUPLICATE:
         pid_a = db.resolve_page_id(p.get("page_id_a", ""))
         pid_b = db.resolve_page_id(p.get("page_id_b", ""))
         db.save_page_flag("duplicate", call_id=call.id, page_id_a=pid_a, page_id_b=pid_b)
         print(f"  [flag] Duplicate reported: {p.get('page_id_a')} <-> {p.get('page_id_b')}")
 
-    elif mt == "PROPOSE_HYPOTHESIS":
+    elif mt is MoveType.PROPOSE_HYPOTHESIS:
         return _propose_hypothesis(p, call, db)
 
-    elif mt == "LOAD_PAGE":
+    elif mt is MoveType.LOAD_PAGE:
         pass  # pre-phase move; handled before executor runs, safe to ignore here
-
-    else:
-        print(f"  [executor] Unknown move type: {mt}")
 
     return None
 

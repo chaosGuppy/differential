@@ -36,6 +36,14 @@ class CallType(str, Enum):
     MAINTAIN = "maintain"
 
 
+# The subset of CallTypes that prioritization can dispatch.
+DISPATCHABLE_CALL_TYPES: set[CallType] = {
+    CallType.SCOUT,
+    CallType.ASSESS,
+    CallType.PRIORITIZATION,
+}
+
+
 class CallStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -48,6 +56,22 @@ class LinkType(str, Enum):
     CHILD_QUESTION = "child_question"     # question decomposes into sub-question
     SUPERSEDES = "supersedes"             # page replaces another
     RELATED = "related"                   # general relation
+
+
+class MoveType(str, Enum):
+    CREATE_CLAIM = "CREATE_CLAIM"
+    CREATE_QUESTION = "CREATE_QUESTION"
+    CREATE_JUDGEMENT = "CREATE_JUDGEMENT"
+    CREATE_CONCEPT = "CREATE_CONCEPT"
+    CREATE_WIKI_PAGE = "CREATE_WIKI_PAGE"
+    LINK_CONSIDERATION = "LINK_CONSIDERATION"
+    LINK_CHILD_QUESTION = "LINK_CHILD_QUESTION"
+    LINK_RELATED = "LINK_RELATED"
+    SUPERSEDE_PAGE = "SUPERSEDE_PAGE"
+    FLAG_FUNNINESS = "FLAG_FUNNINESS"
+    REPORT_DUPLICATE = "REPORT_DUPLICATE"
+    PROPOSE_HYPOTHESIS = "PROPOSE_HYPOTHESIS"
+    LOAD_PAGE = "LOAD_PAGE"
 
 
 class ConsiderationDirection(str, Enum):
