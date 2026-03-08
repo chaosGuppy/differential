@@ -5,7 +5,7 @@ os.environ["DIFFERENTIAL_TEST_MODE"] = "1"
 
 import pytest
 
-from differential.database import DB, init_db
+from differential.database import DB
 from differential.models import (
     Call,
     CallStatus,
@@ -16,13 +16,16 @@ from differential.models import (
     Workspace,
 )
 
+_TEXT_ID_TABLES = ['page_flags', 'page_ratings', 'page_links', 'calls', 'pages']
+
 
 @pytest.fixture
-def tmp_db(tmp_path):
-    """Create a fresh SQLite DB in a temp directory."""
-    db_path = tmp_path / "test.db"
-    init_db(db_path)
-    db = DB(db_path)
+def tmp_db():
+    """Create a DB using the test schema so production data is untouched."""
+    db = DB(schema='test')
+    for table in _TEXT_ID_TABLES:
+        db.client.table(table).delete().neq('id', '__never__').execute()
+    db.client.table('budget').delete().gte('id', 0).execute()
     db.init_budget(100)
     return db
 

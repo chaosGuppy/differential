@@ -9,21 +9,19 @@ Modes:
 Set ANTHROPIC_API_KEY in your environment before running.
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from differential.database import DB, init_db
+from differential.database import DB
 from differential.models import Call, CallType, Page, PageLayer, PageLink, PageType, LinkType, Workspace
 from differential.orchestrator import Orchestrator, ingest_until_done
 from differential.chat import run_chat
 from differential.mapper import generate_map
 from differential.summary import generate_summary, save_summary
 
-DB_PATH = Path(__file__).parent / "db" / "workspace.db"
 PAGES_DIR = Path(__file__).parent / "pages"
 
 
@@ -39,7 +37,7 @@ def create_root_question(question_text: str, db: DB) -> str:
         provenance_model="human",
         provenance_call_type="init",
         provenance_call_id="init",
-        extra=json.dumps({"status": "open"}),
+        extra={"status": "open"},
     )
     db.save_page(page)
     return page.id
@@ -58,7 +56,7 @@ def cmd_add_question(question_text: str, parent_id: str | None,
         provenance_model="human",
         provenance_call_type="manual",
         provenance_call_id="manual",
-        extra=json.dumps({"status": "open"}),
+        extra={"status": "open"},
     )
     db.save_page(page)
 
@@ -149,7 +147,7 @@ def _create_source_page(filepath: str, db: DB) -> Page | None:
         provenance_model="human",
         provenance_call_type="ingest",
         provenance_call_id="manual",
-        extra=json.dumps({"filename": path.name, "char_count": len(content)}),
+        extra={"filename": path.name, "char_count": len(content)},
     )
     db.save_page(page)
     print(f"\nSource created: {page.id}")
@@ -305,7 +303,6 @@ def cmd_continue(question_id: str, additional_budget: int | None, db: DB) -> Non
 def _print_summary(db: DB) -> None:
     total, used = db.get_budget()
     print(f"\nPages written to: {PAGES_DIR}")
-    print(f"Database at:      {DB_PATH}")
     print(f"Budget used:      {used}/{total} calls")
     print(f"\nRun --list to see all questions.")
 
@@ -346,10 +343,8 @@ def main():
                         help="Extract considerations from ingested source(s) for this question")
     args = parser.parse_args()
 
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
-    init_db(DB_PATH)
-    db = DB(DB_PATH)
+    db = DB()
 
     if args.list:
         cmd_list(db)
