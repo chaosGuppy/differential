@@ -1,6 +1,7 @@
 """Execution tracing: capture call events and generate HTML visualizations."""
 
 import json
+import os
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -12,6 +13,9 @@ PAGES_DIR = Path(__file__).parent.parent.parent / "pages"
 TRACES_DIR = PAGES_DIR / "traces"
 
 
+TRACING_ENABLED = not os.environ.get("DIFFERENTIAL_TEST_MODE")
+
+
 class CallTrace:
     """Accumulates trace events during a call and persists them to the DB."""
 
@@ -19,8 +23,11 @@ class CallTrace:
         self.call_id = call_id
         self.db = db
         self.events: list[dict] = []
+        self._enabled = TRACING_ENABLED
 
     def record(self, event: str, data: dict | None = None) -> None:
+        if not self._enabled:
+            return
         entry: dict = {
             "event": event,
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -30,6 +37,8 @@ class CallTrace:
         self.events.append(entry)
 
     def save(self) -> None:
+        if not self._enabled:
+            return
         if self.events:
             self.db.save_call_trace(self.call_id, self.events)
             self.events = []

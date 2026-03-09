@@ -24,6 +24,7 @@ from differential.orchestrator import Orchestrator, ingest_until_done
 from differential.chat import run_chat
 from differential.mapper import generate_map
 from differential.summary import generate_summary, save_summary
+from differential import tracer
 from differential.tracer import generate_trace
 
 PAGES_DIR = Path(__file__).parent / "pages"
@@ -420,7 +421,16 @@ def main():
         metavar="QUESTION_ID",
         help="Extract considerations from ingested source(s) for this question",
     )
+    parser.add_argument(
+        "--no-trace",
+        dest="no_trace",
+        action="store_true",
+        help="Disable execution tracing for this run",
+    )
     args = parser.parse_args()
+
+    if args.no_trace:
+        tracer.TRACING_ENABLED = False
 
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
 
