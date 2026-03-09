@@ -8,6 +8,7 @@ from typing import Optional
 from differential.calls import run_assess, run_ingest, run_prioritization, run_scout
 from differential.database import DB
 from differential.models import CallType, Page, Workspace
+from differential.tracer import CallTrace
 
 
 DEFAULT_FRUIT_THRESHOLD = 4
@@ -32,13 +33,14 @@ def scout_until_done(
     fruit_threshold: int = DEFAULT_FRUIT_THRESHOLD,
     parent_call_id: Optional[str] = None,
     context_page_ids: list | None = None,
-) -> int:
+) -> tuple[int, list[str]]:
     """
     Run Scout rounds until remaining_fruit falls below fruit_threshold or max_rounds
-    is reached. Returns number of Scout calls made.
+    is reached. Returns (rounds_made, list_of_call_ids).
     fruit_threshold is the primary stopping condition; max_rounds is a failsafe.
     """
     rounds = 0
+    call_ids: list[str] = []
     for i in range(max_rounds):
         if not _consume_budget(db):
             break
@@ -49,6 +51,7 @@ def scout_until_done(
             parent_call_id=parent_call_id,
             context_page_ids=context_page_ids,
         )
+        call_ids.append(call.id)
         _, review = run_scout(question_id, call, db)
         rounds += 1
 
@@ -62,7 +65,7 @@ def scout_until_done(
             print("  [orchestrator] Fruit below threshold, stopping scout.")
             break
 
-    return rounds
+    return rounds, call_ids
 
 
 def ingest_until_done(
@@ -110,10 +113,10 @@ def assess_question(
     db: DB,
     parent_call_id: Optional[str] = None,
     context_page_ids: list | None = None,
-) -> bool:
-    """Run one Assess call on a question. Returns False if no budget."""
+) -> str | None:
+    """Run one Assess call on a question. Returns call ID, or None if no budget."""
     if not _consume_budget(db):
-        return False
+        return None
 
     call = db.create_call(
         CallType.ASSESS,
@@ -122,7 +125,7 @@ def assess_question(
         context_page_ids=context_page_ids,
     )
     run_assess(question_id, call, db)
-    return True
+    return call.id
 
 
 class Orchestrator:
@@ -172,6 +175,7 @@ class Orchestrator:
         )
 
         dispatches = plan.get("dispatches", [])
+        p_trace: CallTrace | None = plan.get("trace")
 
         if not dispatches:
             # Prioritization produced no plan — fall back to simple scout+assess
@@ -184,7 +188,7 @@ class Orchestrator:
 
         # Execute the plan one dispatch at a time
         budget_spent = 0
-        for dispatch in dispatches:
+        for i, dispatch in enumerate(dispatches):
             if budget_spent >= actual_budget or self.db.budget_remaining() <= 0:
                 break
 
@@ -216,8 +220,10 @@ class Orchestrator:
                     f"{indent}  -> Dispatch: {d_type} on {d_label} (budget={d_budget}) — {d_reason}"
                 )
 
+            child_call_id: str | None = None
+
             if d_type is CallType.SCOUT:
-                spent = scout_until_done(
+                spent, child_ids = scout_until_done(
                     d_question_id,
                     self.db,
                     max_rounds=d_max_rounds,
@@ -226,15 +232,16 @@ class Orchestrator:
                     context_page_ids=d_context_ids,
                 )
                 budget_spent += spent
+                child_call_id = child_ids[0] if child_ids else None
 
             elif d_type is CallType.ASSESS:
-                ok = assess_question(
+                child_call_id = assess_question(
                     d_question_id,
                     self.db,
                     parent_call_id=p_call.id,
                     context_page_ids=d_context_ids,
                 )
-                if ok:
+                if child_call_id:
                     budget_spent += 1
 
             elif d_type is CallType.PRIORITIZATION:
@@ -245,6 +252,19 @@ class Orchestrator:
                     depth=depth + 1,
                 )
                 budget_spent += d_budget
+
+            if p_trace:
+                trace_data: dict = {
+                    "index": i,
+                    "child_call_type": d_type.value,
+                    "question_id": d_question_id,
+                }
+                if child_call_id:
+                    trace_data["child_call_id"] = child_call_id
+                p_trace.record("dispatch_executed", trace_data)
+
+        if p_trace:
+            p_trace.save()
 
     def run(self, root_question_id: str) -> None:
         """Entry point. Investigate the root question with the full budget."""

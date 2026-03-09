@@ -64,7 +64,23 @@ uv run python main.py --map QUESTION_ID
 
 # Generate executive summary
 uv run python main.py --summary QUESTION_ID
+
+# Generate execution trace visualization
+uv run python main.py --trace QUESTION_ID
+# Or trace a specific call:
+uv run python main.py --trace CALL_ID
 ```
+
+### Execution traces
+
+The `--trace` flag generates a self-contained HTML file in `pages/traces/` showing the full call tree for an investigation. Each call node displays:
+
+- **Context**: which pages were in scope
+- **Phases**: page loading in phase 1 and iterative phase 2 rounds
+- **Moves**: every move the LLM made (claims created, links added, etc.) with full payloads
+- **Reviews**: remaining fruit, confidence, and self-assessment
+
+For prioritization calls, dispatches are shown as clickable links that jump to the child call's trace. Page IDs render as colored chips with summaries; click to expand and see full content.
 
 For PDF ingestion, install the optional dependency: `uv sync --extra pdf`
 

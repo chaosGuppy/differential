@@ -4,6 +4,7 @@ from differential.calls.common import (
     complete_call,
     dedup,
     format_extra_pages,
+    moves_to_trace_data,
     print_page_ratings,
     run_closing_review,
     run_phase1,
@@ -16,6 +17,7 @@ from differential.executor import execute_all_moves
 from differential.llm import build_system_prompt, build_user_message
 from differential.models import Call, CallStatus
 from differential.parser import ParsedOutput
+from differential.tracer import CallTrace
 
 
 def run_scout(
@@ -27,6 +29,7 @@ def run_scout(
     Run a Scout call on a question.
     Returns (parsed_output, review_dict).
     """
+    trace = CallTrace(call.id, db)
     print(f"\n[SCOUT] {call.id[:8]} — {db.page_label(question_id)}")
 
     preloaded = call.context_page_ids or []
@@ -34,10 +37,13 @@ def run_scout(
     context_text, short_id_map = build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
+    trace.record("context_built", {
+        "page_ids_in_context": list(short_id_map.values()),
+    })
 
     phase1_user = build_user_message(context_text, PHASE1_TASK)
     phase1_raw, phase1_page_ids = run_phase1(
-        system_prompt, phase1_user, short_id_map, db
+        system_prompt, phase1_user, short_id_map, db, trace=trace
     )
 
     extra_pages_text = format_extra_pages(phase1_page_ids, db)
@@ -57,11 +63,12 @@ def run_scout(
         {"role": "user", "content": phase2_user},
     ]
     raw, parsed, phase2_ids = run_with_loading(
-        system_prompt, messages, short_id_map, db
+        system_prompt, messages, short_id_map, db, trace=trace
     )
 
     db.update_call_status(call.id, CallStatus.RUNNING)
     created = execute_all_moves(parsed, call, db)
+    trace.record("moves_executed", moves_to_trace_data(parsed.moves, created))
 
     all_loaded_ids = dedup(preloaded + phase1_page_ids + phase2_ids)
     review = run_closing_review(call, raw, context_text, all_loaded_ids, db)
@@ -73,11 +80,16 @@ def run_scout(
             f"confidence={review.get('confidence_in_output', '?')}"
         )
         print_page_ratings(review, db)
+        trace.record("review_complete", {
+            "remaining_fruit": remaining_fruit,
+            "confidence": review.get("confidence_in_output"),
+        })
 
     call.review_json = review or {}
     complete_call(
         call,
         db,
         f"Scout complete. Created {len(created)} pages. Remaining fruit: {remaining_fruit}",
+        trace=trace,
     )
     return parsed, review or {}

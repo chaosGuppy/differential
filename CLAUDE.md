@@ -27,6 +27,9 @@ uv run python main.py --map QUESTION_ID
 
 # Generate executive summary
 uv run python main.py --summary QUESTION_ID
+
+# Generate execution trace (accepts question ID or call ID)
+uv run python main.py --trace QUESTION_ID
 ```
 
 Tests: `uv run pytest`. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
@@ -59,11 +62,13 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 **Context building** (`src/differential/context.py`): Assembles LLM context from DB state. `build_call_context()` prepends a compact workspace map (from `src/differential/workspace_map.py`) then detailed working context for the target question. `build_prioritization_context()` includes a question index with dispatchable IDs.
 
+**Tracing** (`src/differential/tracer.py`): `CallTrace` accumulates events during a call's lifecycle and persists them as JSONB in the `trace_json` column on `calls`. Each call type creates a `CallTrace` and records context, phases, moves, and review events. The orchestrator records `dispatch_executed` events on prioritization traces. `generate_trace()` renders an interactive HTML visualization. Move payloads are normalized via pydantic models in `src/differential/move_models.py`.
+
 **Outputs:**
-- `db/workspace.db` — SQLite database (gitignored)
 - `pages/research/` — markdown files per page
 - `pages/maps/` — HTML research maps
 - `pages/summaries/` — generated summaries
+- `pages/traces/` — HTML execution trace visualizations
 
 ## Key Conventions
 

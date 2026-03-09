@@ -427,6 +427,62 @@ class DB:
             out.setdefault(row["source_id"], []).append(row["question_id"])
         return out
 
+    # --- Traces ---
+
+    def save_call_trace(self, call_id: str, events: list[dict]) -> None:
+        """Append trace events to the call's trace_json column."""
+        self.client.rpc(
+            "append_call_trace",
+            {"cid": call_id, "new_events": events},
+        ).execute()
+
+    def get_call_trace(self, call_id: str) -> list[dict]:
+        """Fetch trace events for a call."""
+        rows = _rows(
+            self.client.table("calls")
+            .select("trace_json")
+            .eq("id", call_id)
+            .execute()
+        )
+        if rows and rows[0].get("trace_json"):
+            return rows[0]["trace_json"]
+        return []
+
+    def get_child_calls(self, parent_call_id: str) -> list[Call]:
+        """Fetch direct child calls ordered by created_at."""
+        rows = _rows(
+            self.client.table("calls")
+            .select("*")
+            .eq("parent_call_id", parent_call_id)
+            .order("created_at")
+            .execute()
+        )
+        return [_row_to_call(r) for r in rows]
+
+    def get_root_calls_for_question(self, question_id: str) -> list[Call]:
+        """Find top-level calls for a question (prioritization calls with no
+        parent, or whose parent targets a different question)."""
+        rows = _rows(
+            self.client.table("calls")
+            .select("*")
+            .eq("scope_page_id", question_id)
+            .is_("parent_call_id", "null")
+            .order("created_at")
+            .execute()
+        )
+        result = [_row_to_call(r) for r in rows]
+        if result:
+            return result
+        # Fallback: return all calls scoped to this question
+        rows = _rows(
+            self.client.table("calls")
+            .select("*")
+            .eq("scope_page_id", question_id)
+            .order("created_at")
+            .execute()
+        )
+        return [_row_to_call(r) for r in rows]
+
     def save_page_rating(
         self,
         page_id: str,

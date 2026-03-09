@@ -1,7 +1,9 @@
 """Shared utilities for call types."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from anthropic.types import MessageParam
 
@@ -9,7 +11,28 @@ from differential.context import format_page
 from differential.database import DB
 from differential.llm import build_user_message, run_llm
 from differential.models import Call, CallStatus
-from differential.parser import ParsedOutput, parse_output
+from differential.move_models import move_to_trace_dict
+from differential.parser import Move, ParsedOutput, parse_output
+
+if TYPE_CHECKING:
+    from differential.tracer import CallTrace
+
+
+def moves_to_trace_data(
+    moves: list[Move],
+    created_page_ids: list[str],
+) -> dict:
+    """Build the trace data dict for a moves_executed event."""
+    return {
+        "moves": [
+            {
+                "type": m.move_type.value,
+                **move_to_trace_dict(m.move_type, m.payload),
+            }
+            for m in moves
+        ],
+        "created_page_ids": created_page_ids,
+    }
 
 REVIEW_SYSTEM_PROMPT = (
     "You are a research assistant completing a closing review of a call you just made "
@@ -51,11 +74,15 @@ def print_page_ratings(review: dict, db: DB) -> None:
         print(f"  [page] {page_label} [{label}]: {note}")
 
 
-def complete_call(call: Call, db: DB, summary: str) -> None:
+def complete_call(
+    call: Call, db: DB, summary: str, trace: CallTrace | None = None
+) -> None:
     call.status = CallStatus.COMPLETE
     call.completed_at = datetime.utcnow()
     call.result_summary = summary
     db.save_call(call)
+    if trace:
+        trace.save()
 
 
 def run_closing_review(
@@ -147,6 +174,7 @@ def run_phase1(
     phase1_user_msg: str,
     short_id_map: dict[str, str],
     db: DB,
+    trace: CallTrace | None = None,
 ) -> tuple[str, list[str]]:
     """Preliminary analysis. Returns (raw_response, resolved_full_page_ids). Free."""
     try:
@@ -160,6 +188,11 @@ def run_phase1(
         if resolved:
             labels = [db.page_label(pid) for pid in resolved]
             print(f"  [phase1] Requested pages: {', '.join(labels)}")
+        if trace:
+            trace.record("phase1_complete", {
+                "pages_requested": short_ids,
+                "pages_loaded": resolved,
+            })
         return raw, resolved
     except Exception as e:
         status = getattr(e, "status_code", None)
@@ -203,6 +236,7 @@ def run_with_loading(
     short_id_map: dict[str, str],
     db: DB,
     max_tokens: int = 4096,
+    trace: CallTrace | None = None,
 ) -> tuple[str, ParsedOutput, list[str]]:
     """Phase 2: run the LLM with iterative LOAD_PAGE support."""
     messages = cast(list[MessageParam], initial_messages)
@@ -229,6 +263,13 @@ def run_with_loading(
             f"  [phase2] Round {round_num + 1}: loading {len(valid_ids)} page(s) "
             f"({len(parsed.load_page_ids)} requested)..."
         )
+        if trace:
+            trace.record("phase2_round", {
+                "round": round_num + 1,
+                "pages_requested": parsed.load_page_ids,
+                "pages_loaded": valid_ids,
+                "move_count": len(parsed.moves),
+            })
 
         extra_text = format_extra_pages(valid_ids, db) if valid_ids else ""
         is_last = round_num + 1 == MAX_LOAD_ROUNDS

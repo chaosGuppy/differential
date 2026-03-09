@@ -24,6 +24,8 @@ from differential.orchestrator import Orchestrator, ingest_until_done
 from differential.chat import run_chat
 from differential.mapper import generate_map
 from differential.summary import generate_summary, save_summary
+from differential import tracer
+from differential.tracer import generate_trace
 
 PAGES_DIR = Path(__file__).parent / "pages"
 
@@ -236,6 +238,12 @@ def cmd_map(question_id: str, db: DB) -> None:
     print("Open that file in your browser to view it.")
 
 
+def cmd_trace(trace_id: str, db: DB) -> None:
+    path = generate_trace(trace_id, db)
+    print(f"Trace saved to: {path}")
+    print("Open that file in your browser to view it.")
+
+
 def cmd_summary(question_id: str, db: DB) -> None:
     question = db.get_page(question_id)
     if not question:
@@ -383,6 +391,12 @@ def main():
         help="Chat interactively about the research on a question",
     )
     parser.add_argument(
+        "--trace",
+        dest="trace_id",
+        metavar="QUESTION_OR_CALL_ID",
+        help="Generate an HTML execution trace visualization",
+    )
+    parser.add_argument(
         "--add-question",
         dest="add_question",
         metavar="TEXT",
@@ -407,7 +421,16 @@ def main():
         metavar="QUESTION_ID",
         help="Extract considerations from ingested source(s) for this question",
     )
+    parser.add_argument(
+        "--no-trace",
+        dest="no_trace",
+        action="store_true",
+        help="Disable execution tracing for this run",
+    )
     args = parser.parse_args()
+
+    if args.no_trace:
+        tracer.TRACING_ENABLED = False
 
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -416,8 +439,9 @@ def main():
     if args.list:
         cmd_list(db)
         return
-
-    if args.chat_id:
+    elif args.trace_id:
+        cmd_trace(args.trace_id, db)
+    elif args.chat_id:
         run_chat(args.chat_id, db)
     elif args.add_question:
         cmd_add_question(args.add_question, args.parent_id, args.budget, db)
