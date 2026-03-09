@@ -4,6 +4,7 @@ from differential.calls.common import (
     complete_call,
     dedup,
     format_extra_pages,
+    moves_to_trace_data,
     print_page_ratings,
     run_closing_review,
     run_phase1,
@@ -16,6 +17,7 @@ from differential.executor import execute_all_moves
 from differential.llm import build_system_prompt, build_user_message
 from differential.models import Call, CallStatus, Page
 from differential.parser import ParsedOutput
+from differential.tracer import CallTrace
 
 
 def run_ingest(
@@ -28,6 +30,7 @@ def run_ingest(
     Run an Ingest call: extract considerations from a source document for a question.
     Returns (parsed_output, review_dict).
     """
+    trace = CallTrace(call.id, db)
     extra = source_page.extra or {}
     filename = extra.get("filename", source_page.id[:8])
 
@@ -41,6 +44,10 @@ def run_ingest(
     question_context, short_id_map = build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
+    trace.record("context_built", {
+        "page_ids_in_context": list(short_id_map.values()),
+        "source_page_id": source_page.id,
+    })
 
     source_section = (
         "\n\n---\n\n## Source Document\n\n"
@@ -58,7 +65,7 @@ def run_ingest(
 
     phase1_user = build_user_message(context_text, PHASE1_TASK)
     phase1_raw, phase1_page_ids = run_phase1(
-        system_prompt, phase1_user, short_id_map, db
+        system_prompt, phase1_user, short_id_map, db, trace=trace
     )
 
     extra_pages_text = format_extra_pages(phase1_page_ids, db)
@@ -78,11 +85,12 @@ def run_ingest(
         {"role": "user", "content": phase2_user},
     ]
     raw, parsed, phase2_ids = run_with_loading(
-        system_prompt, messages, short_id_map, db
+        system_prompt, messages, short_id_map, db, trace=trace
     )
 
     db.update_call_status(call.id, CallStatus.RUNNING)
     created = execute_all_moves(parsed, call, db)
+    trace.record("moves_executed", moves_to_trace_data(parsed.moves, created))
 
     all_loaded_ids = dedup(preloaded + phase1_page_ids + phase2_ids)
     review = run_closing_review(call, raw, context_text, all_loaded_ids, db)
@@ -92,9 +100,14 @@ def run_ingest(
             f"remaining_fruit={review.get('remaining_fruit', '?')}"
         )
         print_page_ratings(review, db)
+        trace.record("review_complete", {
+            "remaining_fruit": review.get("remaining_fruit"),
+            "confidence": review.get("confidence_in_output"),
+        })
 
     call.review_json = review or {}
     complete_call(
-        call, db, f"Ingest complete. Created {len(created)} pages from '{filename}'."
+        call, db, f"Ingest complete. Created {len(created)} pages from '{filename}'.",
+        trace=trace,
     )
     return parsed, review or {}
