@@ -56,6 +56,7 @@ def run_scout(
         {
             "working_context_page_ids": working_page_ids,
             "preloaded_page_ids": preloaded,
+            "scout_mode": mode.value,
         },
     )
 
