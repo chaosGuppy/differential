@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'input=$(cat); if echo \"$input\" | grep -q \"supabase db reset\"; then echo \"{\\\"decision\\\": \\\"block\\\", \\\"reason\\\": \\\"supabase db reset is forbidden. Use supabase migration up instead to apply migrations without wiping data.\\\"}\"; else echo \"{\\\"decision\\\": \\\"allow\\\"}\"; fi'"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

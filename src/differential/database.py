@@ -43,9 +43,13 @@ _DEFAULT_KEY = (
 )
 
 
-def _make_client() -> Client:
-    url = os.environ.get("SUPABASE_URL", _DEFAULT_URL)
-    key = os.environ.get("SUPABASE_KEY", _DEFAULT_KEY)
+def _make_client(prod: bool = False) -> Client:
+    if prod:
+        url = os.environ["SUPABASE_PROD_URL"]
+        key = os.environ["SUPABASE_PROD_KEY"]
+    else:
+        url = os.environ.get("SUPABASE_URL", _DEFAULT_URL)
+        key = os.environ.get("SUPABASE_KEY", _DEFAULT_KEY)
     return create_client(url, key, options=SyncClientOptions(schema="public"))
 
 
@@ -109,9 +113,10 @@ class DB:
         self,
         run_id: str,
         client: Client | None = None,
+        prod: bool = False,
     ):
         self.run_id = run_id
-        self.client = client or _make_client()
+        self.client = client or _make_client(prod=prod)
 
     # --- Pages ---
 

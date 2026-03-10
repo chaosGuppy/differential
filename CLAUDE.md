@@ -1,14 +1,17 @@
 ## What This Is
 
-An LLM-powered research workspace. Users pose questions, and the system recursively investigates them by making structured LLM calls (scout, assess, prioritize, ingest) that produce "pages" (claims, questions, judgements, concepts) stored in a SQLite database. Pages link together into a research tree with considerations bearing on questions.
+An LLM-powered research workspace. Users pose questions, and the system recursively investigates them by making structured LLM calls (scout, assess, prioritize, ingest) that produce "pages" (claims, questions, judgements, concepts) stored in a Supabase (Postgres) database. Pages link together into a research tree with considerations bearing on questions.
 
 ## Running
 
-Requires `ANTHROPIC_API_KEY` in environment. Uses `anthropic` Python SDK and `claude-opus-4-6`. Environment managed with `uv`.
+Requires `ANTHROPIC_API_KEY` in environment. Uses `anthropic` Python SDK and `claude-opus-4-6`. Environment managed with `uv`. Data is stored in Supabase — local by default, or production with `--prod-db`.
 
 ```bash
 # New investigation
 uv run python main.py "Your question here" --budget 20
+
+# Use production database (any command)
+uv run python main.py --prod-db "Your question here" --budget 20
 
 # Continue existing question
 uv run python main.py --continue QUESTION_ID --budget 10
@@ -34,6 +37,8 @@ uv run python main.py --trace QUESTION_ID
 
 Tests: `uv run pytest`. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
 
+**Database:** Runs against local Supabase by default (`supabase start`). Pass `--prod-db` to any command to target production. Production requires `SUPABASE_PROD_URL` and `SUPABASE_PROD_KEY` (service_role) in `.env`. Migrations live in `supabase/migrations/` and are pushed to prod with `supabase db push`.
+
 ## Architecture
 
 **Entry point:** `main.py` — CLI arg parsing, dispatches to command functions.
@@ -54,7 +59,7 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 **Moves** (`src/differential/moves/`): Package with one module per move type. Each module defines a pydantic payload schema, an `execute()` function, and a `MoveDef` that binds them together as a tool. `base.py` has shared helpers (page creation, linking, `LAST_CREATED` resolution). `registry.py` collects all moves into a `MOVES` dict keyed by `MoveType`. See `MoveType` enum in `models.py` for the full list.
 
-**Data layer** (`src/differential/database.py`): SQLite with WAL mode. Tables: pages, page_links, calls, budget, page_ratings, page_flags. `DB` class opens a new connection per method call. Has auto-migration for schema changes.
+**Data layer** (`src/differential/database.py`): Supabase (Postgres) via the `supabase` Python SDK. Tables: pages, page_links, calls, budget, page_ratings, page_flags. `DB` class accepts `prod=True` to connect to production; defaults to local Supabase. Several operations use Postgres RPC functions defined in the migrations.
 
 **Data models** (`src/differential/models.py`): Dataclasses for Page, PageLink, Call. Key enums: PageType (source/claim/question/judgement/concept/wiki), CallType (scout/assess/prioritization/ingest/reframe/maintain), LinkType (consideration/child_question/supersedes/related), ConsiderationDirection (supports/opposes/neutral), MoveType (the full set of moves the LLM can emit). MoveType is the source of truth for valid moves — the moves registry maps each to its `MoveDef`. `DISPATCHABLE_CALL_TYPES` defines which `CallType`s prioritization can dispatch (scout/assess/prioritization) — the dispatch tool validates against it and the orchestrator dispatches on `CallType` enum values.
 
@@ -69,6 +74,9 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 - `pages/traces/` — HTML execution trace visualizations
 
 ## Key Conventions
+
+- **NEVER pass `--prod-db` when running `main.py` unless the user explicitly asks you to.** The production database contains real research data. Default to the local database for all testing, development, and exploratory runs.
+- **Never run `supabase db reset`** — this wipes the database and is destructive. To apply pending migrations, use `supabase migration up` instead. If you find yourself wanting to reset the database, stop and ask the user first.
 
 - Epistemic status is a 0-5 float (subjective confidence), always paired with an epistemic_type string
 - Consideration strength is 0-5 (relevance to question)

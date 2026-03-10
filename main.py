@@ -427,6 +427,12 @@ def main():
         action="store_true",
         help="Disable execution tracing for this run",
     )
+    parser.add_argument(
+        "--prod-db",
+        dest="prod_db",
+        action="store_true",
+        help="Use production Supabase (requires SUPABASE_PROD_URL and SUPABASE_PROD_KEY)",
+    )
     args = parser.parse_args()
 
     if args.no_trace:
@@ -434,7 +440,7 @@ def main():
 
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    db = DB(run_id=str(uuid.uuid4()))
+    db = DB(run_id=str(uuid.uuid4()), prod=args.prod_db)
 
     if args.list:
         cmd_list(db)

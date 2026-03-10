@@ -38,6 +38,24 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 `supabase start` runs migrations automatically, so the database is ready to use immediately.
 
+### Production database
+
+To run against the production Supabase instance, add these to your `.env`:
+
+```
+SUPABASE_PROD_URL=https://<project-ref>.supabase.co
+SUPABASE_PROD_KEY=<service_role key from Supabase dashboard>
+```
+
+Then pass `--prod-db` to any command. Without it, all commands target the local database.
+
+To push migrations to production:
+
+```bash
+supabase link --project-ref <project-ref>
+supabase db push
+```
+
 ## Usage
 
 ```bash
@@ -69,6 +87,9 @@ uv run python main.py --summary QUESTION_ID
 uv run python main.py --trace QUESTION_ID
 # Or trace a specific call:
 uv run python main.py --trace CALL_ID
+
+# Any command can target the production database
+uv run python main.py --prod-db --list
 ```
 
 ### Execution traces
