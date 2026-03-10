@@ -106,6 +106,20 @@ def build_context_for_question(
                 parts.append(format_page(j))
                 parts.append("")
 
+        children = db.get_child_questions(question_id)
+        child_judgements = []
+        for child in children:
+            for j in db.get_judgements_for_question(child.id):
+                child_judgements.append((child, j))
+        if child_judgements:
+            parts.append("## Sub-question Judgements")
+            parts.append("")
+            for child, j in child_judgements:
+                loaded_ids.append(j.id)
+                parts.append(f"*On sub-question: {child.summary} (`{child.id}`)*")
+                parts.append(format_page(j))
+                parts.append("")
+
     return "\n".join(parts), loaded_ids
 
 
