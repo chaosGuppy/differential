@@ -28,8 +28,8 @@ class ProposeHypothesisPayload(BaseModel):
     strength: float = Field(2.5, description="0-5 consideration strength")
 
 
-def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult:
-    parent_id = db.resolve_page_id(payload.parent_question_id)
+async def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult:
+    parent_id = await db.resolve_page_id(payload.parent_question_id)
     if not parent_id:
         print(
             "  [executor] PROPOSE_HYPOTHESIS: parent_question_id not found: "
@@ -59,9 +59,9 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         provenance_call_id=call.id,
         extra={"hypothesis": True},
     )
-    db.save_page(claim)
+    await db.save_page(claim)
     write_page_file(claim)
-    print(f"  [+] hypothesis claim: {db.page_label(claim.id)}")
+    print(f"  [+] hypothesis claim: {await db.page_label(claim.id)}")
 
     direction_str = payload.direction.lower()
     try:
@@ -69,7 +69,7 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
     except ValueError:
         direction = ConsiderationDirection.NEUTRAL
 
-    db.save_link(
+    await db.save_link(
         PageLink(
             from_page_id=claim.id,
             to_page_id=parent_id,
@@ -80,8 +80,8 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         )
     )
     print(
-        f"  [~] Consideration: {db.page_label(claim.id)} -> "
-        f"{db.page_label(parent_id)} ({direction_str})"
+        f"  [~] Consideration: {await db.page_label(claim.id)} -> "
+        f"{await db.page_label(parent_id)} ({direction_str})"
     )
 
     # 2. Create the hypothesis question
@@ -99,11 +99,11 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         provenance_call_id=call.id,
         extra={"hypothesis": True, "status": "open"},
     )
-    db.save_page(question)
+    await db.save_page(question)
     write_page_file(question)
-    print(f"  [+] hypothesis question: {db.page_label(question.id)}")
+    print(f"  [+] hypothesis question: {await db.page_label(question.id)}")
 
-    db.save_link(
+    await db.save_link(
         PageLink(
             from_page_id=parent_id,
             to_page_id=question.id,
@@ -112,8 +112,8 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         )
     )
     print(
-        f"  [~] child_question: {db.page_label(parent_id)} -> "
-        f"{db.page_label(question.id)}"
+        f"  [~] child_question: {await db.page_label(parent_id)} -> "
+        f"{await db.page_label(question.id)}"
     )
 
     return MoveResult(

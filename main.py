@@ -10,6 +10,8 @@ Set ANTHROPIC_API_KEY in your environment before running.
 """
 
 import argparse
+import asyncio
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -30,7 +32,7 @@ from differential.tracer import generate_trace
 PAGES_DIR = Path(__file__).parent / "pages"
 
 
-def create_root_question(question_text: str, db: DB) -> str:
+async def create_root_question(question_text: str, db: DB) -> str:
     page = Page(
         page_type=PageType.QUESTION,
         layer=PageLayer.SQUIDGY,
@@ -44,11 +46,11 @@ def create_root_question(question_text: str, db: DB) -> str:
         provenance_call_id="init",
         extra={"status": "open"},
     )
-    db.save_page(page)
+    await db.save_page(page)
     return page.id
 
 
-def cmd_add_question(
+async def cmd_add_question(
     question_text: str, parent_id: str | None, budget: int | None, db: DB
 ) -> None:
     page = Page(
@@ -64,10 +66,10 @@ def cmd_add_question(
         provenance_call_id="manual",
         extra={"status": "open"},
     )
-    db.save_page(page)
+    await db.save_page(page)
 
     if parent_id:
-        parent = db.get_page(parent_id)
+        parent = await db.get_page(parent_id)
         if not parent:
             print(
                 f"Warning: parent '{parent_id}' not found — question created without parent link."
@@ -79,7 +81,7 @@ def cmd_add_question(
                 link_type=LinkType.CHILD_QUESTION,
                 reasoning="Manually added sub-question",
             )
-            db.save_link(link)
+            await db.save_link(link)
             print(f"\nAdded as sub-question of: {parent.summary[:70]}")
 
     print(f"\nQuestion added: {page.id}")
@@ -90,9 +92,9 @@ def cmd_add_question(
         print(
             f"Budget:         {effective_budget} research call{'s' if effective_budget != 1 else ''}\n"
         )
-        db.init_budget(effective_budget)
-        Orchestrator(db).run(page.id)
-        _print_summary(db)
+        await db.init_budget(effective_budget)
+        await Orchestrator(db).run(page.id)
+        await _print_summary(db)
     else:
         print("\nTo investigate it later:")
         print(f"  python main.py --continue {page.id} --budget N")
@@ -135,7 +137,7 @@ def _generate_source_summary(content: str, filename: str) -> str:
         return filename
 
 
-def _create_source_page(filepath: str, db: DB) -> Page | None:
+async def _create_source_page(filepath: str, db: DB) -> Page | None:
     """Read a file and create a Source page. Returns the page, or None on error."""
     path = Path(filepath)
     if not path.exists():
@@ -162,32 +164,32 @@ def _create_source_page(filepath: str, db: DB) -> Page | None:
         provenance_call_id="manual",
         extra={"filename": path.name, "char_count": len(content)},
     )
-    db.save_page(page)
+    await db.save_page(page)
     print(f"\nSource created: {page.id}")
     print(f"File:           {path.name} ({len(content):,} chars)")
     print(f"Summary:        {summary[:120]}{'…' if len(summary) > 120 else ''}")
     return page
 
 
-def _run_ingest_calls(source_pages: list[Page], question_id: str, db: DB) -> int:
+async def _run_ingest_calls(source_pages: list[Page], question_id: str, db: DB) -> int:
     """Run ingest extraction calls for each source against a question. Returns calls made."""
     made = 0
     for source_page in source_pages:
-        if not db.budget_remaining():
+        if not await db.budget_remaining():
             print("  Budget exhausted — skipping remaining ingest extractions.")
             break
-        rounds = ingest_until_done(source_page, question_id, db)
+        rounds = await ingest_until_done(source_page, question_id, db)
         made += rounds
     return made
 
 
-def cmd_ingest(
+async def cmd_ingest(
     ingest_files: list[str], for_question_id: str | None, budget: int | None, db: DB
 ) -> None:
     # Create source pages first (always free)
     source_pages = []
     for filepath in ingest_files:
-        page = _create_source_page(filepath, db)
+        page = await _create_source_page(filepath, db)
         if page:
             source_pages.append(page)
 
@@ -203,7 +205,7 @@ def cmd_ingest(
         )
         return
 
-    question = db.get_page(for_question_id)
+    question = await db.get_page(for_question_id)
     if not question:
         print(
             f"Error: question '{for_question_id}' not found. Run --list to see existing questions."
@@ -217,35 +219,35 @@ def cmd_ingest(
 
     print(f"\nExtracting considerations for: {question.summary[:80]}")
     print(f"Budget: {effective_budget} call{'s' if effective_budget != 1 else ''}\n")
-    db.init_budget(effective_budget)
-    made = _run_ingest_calls(source_pages, for_question_id, db)
-    total, used = db.get_budget()
+    await db.init_budget(effective_budget)
+    made = await _run_ingest_calls(source_pages, for_question_id, db)
+    total, used = await db.get_budget()
     print(f"\nIngest complete. {made} extraction call{'s' if made != 1 else ''} made.")
     print(f"Budget used: {used}/{total}")
     print("\nRun --map or --chat to explore the results.")
 
 
-def cmd_map(question_id: str, db: DB) -> None:
-    question = db.get_page(question_id)
+async def cmd_map(question_id: str, db: DB) -> None:
+    question = await db.get_page(question_id)
     if not question:
         print(
             f"Error: question '{question_id}' not found. Run --list to see existing questions."
         )
         sys.exit(1)
     print(f"\nGenerating map for: {question.summary[:80]}")
-    path = generate_map(question_id, db)
+    path = await generate_map(question_id, db)
     print(f"Map saved to: {path}")
     print("Open that file in your browser to view it.")
 
 
-def cmd_trace(trace_id: str, db: DB) -> None:
-    path = generate_trace(trace_id, db)
+async def cmd_trace(trace_id: str, db: DB) -> None:
+    path = await generate_trace(trace_id, db)
     print(f"Trace saved to: {path}")
     print("Open that file in your browser to view it.")
 
 
-def cmd_summary(question_id: str, db: DB) -> None:
-    question = db.get_page(question_id)
+async def cmd_summary(question_id: str, db: DB) -> None:
+    question = await db.get_page(question_id)
     if not question:
         print(
             f"Error: question '{question_id}' not found. Run --list to see existing questions."
@@ -255,15 +257,15 @@ def cmd_summary(question_id: str, db: DB) -> None:
     print(f"\nGenerating summary for: {question.summary[:80]}")
     print("(This will use one LLM call but does not count against research budget)\n")
 
-    summary_text = generate_summary(question_id, db)
+    summary_text = await generate_summary(question_id, db)
     path = save_summary(summary_text, question.summary)
 
     print(summary_text)
     print(f"\n---\nSummary saved to: {path}")
 
 
-def cmd_list(db: DB, workspace_name: str) -> None:
-    questions = db.get_root_questions()
+async def cmd_list(db: DB, workspace_name: str) -> None:
+    questions = await db.get_root_questions()
     if not questions:
         print(f"No questions in workspace '{workspace_name}'.")
         return
@@ -272,7 +274,7 @@ def cmd_list(db: DB, workspace_name: str) -> None:
     print(f"\n{'ID':38}  {'Cons':>4}  {'Judg':>4}  Question")
     print("-" * 100)
     for q in questions:
-        counts = db.count_pages_for_question(q.id)
+        counts = await db.count_pages_for_question(q.id)
         truncated = q.summary[:55] + "…" if len(q.summary) > 55 else q.summary
         print(
             f"{q.id}  {counts['considerations']:>4}  {counts['judgements']:>4}  {truncated}"
@@ -281,8 +283,8 @@ def cmd_list(db: DB, workspace_name: str) -> None:
     print("  python main.py --continue QUESTION_ID --budget N")
 
 
-def cmd_list_workspaces(db: DB) -> None:
-    projects = db.list_projects()
+async def cmd_list_workspaces(db: DB) -> None:
+    projects = await db.list_projects()
     if not projects:
         print("No workspaces yet.")
         return
@@ -292,15 +294,15 @@ def cmd_list_workspaces(db: DB) -> None:
         print(f"{p.name:20}  {p.created_at.strftime('%Y-%m-%d %H:%M'):20}  {p.id}")
 
 
-def cmd_new(
+async def cmd_new(
     question_text: str,
     budget: int | None,
     db: DB,
     ingest_files: list[str] | None = None,
 ) -> None:
     budget = budget if budget is not None else 10
-    db.init_budget(budget)
-    question_id = create_root_question(question_text, db)
+    await db.init_budget(budget)
+    question_id = await create_root_question(question_text, db)
 
     print(f"\nNew question: {question_id}")
     print(f"Question:     {question_text}")
@@ -309,20 +311,91 @@ def cmd_new(
     if ingest_files:
         source_pages = []
         for filepath in ingest_files:
-            page = _create_source_page(filepath, db)
+            page = await _create_source_page(filepath, db)
             if page:
                 source_pages.append(page)
         if source_pages:
             print(f"\nIngesting {len(source_pages)} source file(s)...")
-            _run_ingest_calls(source_pages, question_id, db)
+            await _run_ingest_calls(source_pages, question_id, db)
 
-    Orchestrator(db).run(question_id)
-    _print_summary(db)
+    await Orchestrator(db).run(question_id)
+    await _print_summary(db)
 
 
-def cmd_continue(question_id: str, additional_budget: int | None, db: DB) -> None:
+def _batch_label(entry: dict) -> str:
+    if "continue" in entry:
+        return f"continue {entry['continue'][:8]}..."
+    return entry["question"][:70]
+
+
+async def _run_one_batch_entry(
+    entry: dict, index: int, total: int, template_db: DB
+) -> None:
+    """Run a single batch entry with its own run_id for budget isolation."""
+    budget = entry.get("budget", 10)
+    label = _batch_label(entry)
+
+    db = await DB.create(
+        run_id=str(uuid.uuid4()),
+        client=template_db.client,
+        project_id=template_db.project_id,
+    )
+
+    print(f"\n[{index + 1}/{total}] Starting: {label} (budget={budget})")
+
+    if "continue" in entry:
+        await cmd_continue(entry["continue"], budget, db)
+    else:
+        await cmd_new(entry["question"], budget, db, ingest_files=entry.get("ingest"))
+
+    print(f"\n[{index + 1}/{total}] Done: {label}")
+
+
+async def cmd_batch(batch_file: str, db: DB) -> None:
+    path = Path(batch_file)
+    if not path.exists():
+        print(f"Error: file not found: {batch_file}")
+        sys.exit(1)
+
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Error reading batch file: {e}")
+        sys.exit(1)
+
+    if not isinstance(entries, list) or not entries:
+        print("Error: batch file must contain a non-empty JSON array.")
+        sys.exit(1)
+
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            print(f"Error: entry {i} must be a JSON object.")
+            sys.exit(1)
+        if "question" not in entry and "continue" not in entry:
+            print(f"Error: entry {i} must have a 'question' or 'continue' field.")
+            sys.exit(1)
+
+    total_budget = sum(e.get("budget", 10) for e in entries)
+    new_count = sum(1 for e in entries if "question" in e)
+    cont_count = sum(1 for e in entries if "continue" in e)
+    parts = []
+    if new_count:
+        parts.append(f"{new_count} new")
+    if cont_count:
+        parts.append(f"{cont_count} continue")
+    print(f"\nBatch: {' + '.join(parts)}, total budget {total_budget}")
+    print("Running concurrently...\n")
+
+    tasks = [
+        _run_one_batch_entry(entry, i, len(entries), db)
+        for i, entry in enumerate(entries)
+    ]
+    await asyncio.gather(*tasks)
+
+
+async def cmd_continue(question_id: str, additional_budget: int | None, db: DB) -> None:
     additional_budget = additional_budget if additional_budget is not None else 10
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         print(
             f"Error: question '{question_id}' not found. Run --list to see existing questions."
@@ -334,8 +407,8 @@ def cmd_continue(question_id: str, additional_budget: int | None, db: DB) -> Non
         )
         sys.exit(1)
 
-    counts = db.count_pages_for_question(question_id)
-    db.init_budget(additional_budget)
+    counts = await db.count_pages_for_question(question_id)
+    await db.init_budget(additional_budget)
 
     print(f"\nContinuing investigation of: {question.summary[:80]}")
     print(f"Question ID:  {question_id}")
@@ -344,18 +417,18 @@ def cmd_continue(question_id: str, additional_budget: int | None, db: DB) -> Non
     )
     print(f"Budget:       {additional_budget} research calls")
 
-    Orchestrator(db).run(question_id)
-    _print_summary(db)
+    await Orchestrator(db).run(question_id)
+    await _print_summary(db)
 
 
-def _print_summary(db: DB) -> None:
-    total, used = db.get_budget()
+async def _print_summary(db: DB) -> None:
+    total, used = await db.get_budget()
     print(f"\nPages written to: {PAGES_DIR}")
     print(f"Budget used:      {used}/{total} calls")
     print("\nRun --list to see all questions.")
 
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(
         description="Research workspace.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -452,6 +525,13 @@ def main():
         help="List all project workspaces",
     )
     parser.add_argument(
+        "--batch",
+        dest="batch_file",
+        metavar="FILE",
+        help="JSON file with a list of questions to investigate: "
+        '[{"question": "...", "budget": 10}, ...]',
+    )
+    parser.add_argument(
         "--prod-db",
         dest="prod_db",
         action="store_true",
@@ -464,36 +544,42 @@ def main():
 
     PAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    db = DB(run_id=str(uuid.uuid4()), prod=args.prod_db)
+    db = await DB.create(run_id=str(uuid.uuid4()), prod=args.prod_db)
 
     if args.list_workspaces:
-        cmd_list_workspaces(db)
+        await cmd_list_workspaces(db)
         return
 
-    project = db.get_or_create_project(args.workspace_name)
+    project = await db.get_or_create_project(args.workspace_name)
     db.project_id = project.id
 
     if args.list:
-        cmd_list(db, args.workspace_name)
+        await cmd_list(db, args.workspace_name)
         return
     elif args.trace_id:
-        cmd_trace(args.trace_id, db)
+        await cmd_trace(args.trace_id, db)
     elif args.chat_id:
-        run_chat(args.chat_id, db)
+        await run_chat(args.chat_id, db)
     elif args.add_question:
-        cmd_add_question(args.add_question, args.parent_id, args.budget, db)
+        await cmd_add_question(args.add_question, args.parent_id, args.budget, db)
     elif args.map_id:
-        cmd_map(args.map_id, db)
+        await cmd_map(args.map_id, db)
     elif args.summary_id:
-        cmd_summary(args.summary_id, db)
+        await cmd_summary(args.summary_id, db)
     elif args.continue_id:
-        cmd_continue(args.continue_id, args.budget, db)
+        await cmd_continue(args.continue_id, args.budget, db)
+    elif args.batch_file:
+        await cmd_batch(args.batch_file, db)
     elif args.ingest_files and not args.question:
-        cmd_ingest(args.ingest_files, args.for_question_id, args.budget, db)
+        await cmd_ingest(args.ingest_files, args.for_question_id, args.budget, db)
     elif args.question:
-        cmd_new(args.question, args.budget, db, ingest_files=args.ingest_files)
+        await cmd_new(args.question, args.budget, db, ingest_files=args.ingest_files)
     else:
         parser.print_help()
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """Base types and shared helpers for moves."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -65,13 +65,13 @@ class MoveDef(Generic[S]):
     name: str
     description: str
     schema: type[S]
-    execute: Callable[[S, Call, DB], MoveResult]
+    execute: Callable[[S, Call, DB], Awaitable[MoveResult]]
 
     def bind(self, state: MoveState) -> "Tool":
         """Return a Tool bound to this call's mutable state."""
         from differential.llm import Tool
 
-        def fn(inp: dict) -> str:
+        async def fn(inp: dict) -> str:
             try:
                 validated = self.schema(**inp)
             except Exception as e:
@@ -79,7 +79,7 @@ class MoveDef(Generic[S]):
                 raise
             if state.last_created_id:
                 validated = _resolve_last_created(validated, state.last_created_id)
-            result = self.execute(validated, state.call, state.db)
+            result = await self.execute(validated, state.call, state.db)
             state.moves.append(Move(move_type=self.move_type, payload=validated))
             if result.created_page_id:
                 state.created_page_ids.append(result.created_page_id)
@@ -182,7 +182,7 @@ def write_page_file(page: Page) -> None:
     filepath.write_text("\n".join(lines), encoding="utf-8")
 
 
-def create_page(
+async def create_page(
     payload: CreatePagePayload,
     call: Call,
     db: DB,
@@ -225,7 +225,7 @@ def create_page(
         extra=extra,
     )
 
-    db.save_page(page)
+    await db.save_page(page)
     write_page_file(page)
     print(f"  [+] {page_type.value}: {page.summary[:70]} [{page.id[:8]}]")
 
@@ -237,7 +237,7 @@ def create_page(
     return MoveResult(message=message, created_page_id=page.id)
 
 
-def link_pages(
+async def link_pages(
     from_id: str,
     to_id: str,
     reasoning: str,
@@ -245,8 +245,8 @@ def link_pages(
     link_type: LinkType,
 ) -> MoveResult:
     """Create a link between two pages. Used by LINK_CHILD_QUESTION and LINK_RELATED."""
-    from_id = db.resolve_page_id(from_id)
-    to_id = db.resolve_page_id(to_id)
+    from_id = await db.resolve_page_id(from_id)
+    to_id = await db.resolve_page_id(to_id)
     if not from_id or not to_id:
         print(
             f"  [executor] {link_type.value} link skipped — "
@@ -260,8 +260,8 @@ def link_pages(
         link_type=link_type,
         reasoning=reasoning,
     )
-    db.save_link(link)
+    await db.save_link(link)
     print(
-        f"  [~] {link_type.value}: {db.page_label(from_id)} -> {db.page_label(to_id)}"
+        f"  [~] {link_type.value}: {await db.page_label(from_id)} -> {await db.page_label(to_id)}"
     )
     return MoveResult("Done.")

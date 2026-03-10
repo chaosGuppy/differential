@@ -19,23 +19,23 @@ def test_move_defs_have_valid_schemas():
         assert isinstance(schema["properties"], dict)
 
 
-def test_create_claim_via_bind(tmp_db, scout_call):
+async def test_create_claim_via_bind(tmp_db, scout_call):
     """Calling a bound CREATE_CLAIM tool should create a claim page in the DB."""
     state = MoveState(scout_call, tmp_db)
     tool = MOVES[MoveType.CREATE_CLAIM].bind(state)
-    tool.fn({"summary": "Sky is blue", "content": "The sky appears blue."})
+    await tool.fn({"summary": "Sky is blue", "content": "The sky appears blue."})
 
     assert len(state.created_page_ids) == 1
-    page = tmp_db.get_page(state.created_page_ids[0])
+    page = await tmp_db.get_page(state.created_page_ids[0])
     assert page is not None
     assert page.page_type is PageType.CLAIM
     assert page.summary == "Sky is blue"
 
 
-def test_load_page_creates_nothing(tmp_db, scout_call):
+async def test_load_page_creates_nothing(tmp_db, scout_call):
     """Calling a bound LOAD_PAGE tool should not create any pages."""
     state = MoveState(scout_call, tmp_db)
     tool = MOVES[MoveType.LOAD_PAGE].bind(state)
-    tool.fn({"page_id": "abc12345"})
+    await tool.fn({"page_id": "abc12345"})
 
     assert state.created_page_ids == []

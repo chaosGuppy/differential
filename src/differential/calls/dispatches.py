@@ -34,7 +34,7 @@ class DispatchDef(Generic[S]):
     ) -> Tool:
         """Return a Tool bound to a call's mutable state."""
 
-        def fn(inp: dict) -> str:
+        async def fn(inp: dict) -> str:
             validated = self.schema(**inp)
 
             if subtree_ids is not None:

@@ -9,6 +9,7 @@ load_dotenv()
 os.environ["DIFFERENTIAL_TEST_MODE"] = "1"
 
 import pytest
+import pytest_asyncio
 
 from differential.database import DB
 from differential.models import (
@@ -39,20 +40,20 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_llm)
 
 
-@pytest.fixture
-def tmp_db():
+@pytest_asyncio.fixture
+async def tmp_db():
     """Create a DB with a unique run_id and throwaway project for test isolation."""
     run_id = str(uuid.uuid4())
-    db = DB(run_id=run_id)
-    project = db.get_or_create_project(f"test-{run_id[:8]}")
+    db = await DB.create(run_id=run_id)
+    project = await db.get_or_create_project(f"test-{run_id[:8]}")
     db.project_id = project.id
-    db.init_budget(100)
+    await db.init_budget(100)
     yield db
-    db.delete_run_data(delete_project=True)
+    await db.delete_run_data(delete_project=True)
 
 
-@pytest.fixture
-def question_page(tmp_db):
+@pytest_asyncio.fixture
+async def question_page(tmp_db):
     """Create and return a question page in the DB."""
     page = Page(
         page_type=PageType.QUESTION,
@@ -61,12 +62,12 @@ def question_page(tmp_db):
         content="Is the sky blue?",
         summary="Is the sky blue?",
     )
-    tmp_db.save_page(page)
+    await tmp_db.save_page(page)
     return page
 
 
-@pytest.fixture
-def scout_call(question_page):
+@pytest_asyncio.fixture
+async def scout_call(question_page):
     """Create a pending scout call (not yet saved to DB)."""
     return Call(
         call_type=CallType.SCOUT,
@@ -76,8 +77,8 @@ def scout_call(question_page):
     )
 
 
-@pytest.fixture
-def assess_call(question_page):
+@pytest_asyncio.fixture
+async def assess_call(question_page):
     """Create a pending assess call (not yet saved to DB)."""
     return Call(
         call_type=CallType.ASSESS,
@@ -87,8 +88,8 @@ def assess_call(question_page):
     )
 
 
-@pytest.fixture
-def prioritization_call(question_page):
+@pytest_asyncio.fixture
+async def prioritization_call(question_page):
     """Create a pending prioritization call (not yet saved to DB)."""
     return Call(
         call_type=CallType.PRIORITIZATION,

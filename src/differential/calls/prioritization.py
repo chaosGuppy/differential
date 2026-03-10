@@ -7,7 +7,7 @@ from differential.models import Call, CallType, MoveType
 from differential.tracer import CallTrace
 
 
-def run_prioritization(
+async def run_prioritization(
     scope_question_id: str,
     call: Call,
     budget: int,
@@ -19,13 +19,13 @@ def run_prioritization(
     """
     trace = CallTrace(call.id, db)
     print(
-        f"\n[PRIORITIZATION] {call.id[:8]} — {db.page_label(scope_question_id)} — budget {budget}"
+        f"\n[PRIORITIZATION] {call.id[:8]} — {await db.page_label(scope_question_id)} — budget {budget}"
     )
 
-    context_text, short_id_map = build_prioritization_context(
+    context_text, short_id_map = await build_prioritization_context(
         db, scope_question_id=scope_question_id
     )
-    subtree_ids = collect_subtree_ids(scope_question_id, db)
+    subtree_ids = await collect_subtree_ids(scope_question_id, db)
     trace.record("context_built", {"budget": budget})
 
     task = (
@@ -38,7 +38,7 @@ def run_prioritization(
         "Use the dispatch tool to allocate calls."
     )
 
-    result = run_call(
+    result = await run_call(
         CallType.PRIORITIZATION,
         task,
         context_text,
@@ -70,7 +70,7 @@ def run_prioritization(
         "trace": trace,
     }
 
-    complete_call(
+    await complete_call(
         call,
         db,
         f"Prioritization complete. Planned {len(result.dispatches)} dispatches.",

@@ -26,9 +26,9 @@ class LinkConsiderationPayload(BaseModel):
     )
 
 
-def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult:
-    claim_id = db.resolve_page_id(payload.claim_id)
-    question_id = db.resolve_page_id(payload.question_id)
+async def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult:
+    claim_id = await db.resolve_page_id(payload.claim_id)
+    question_id = await db.resolve_page_id(payload.question_id)
     if not claim_id or not question_id:
         print(
             "  [executor] LINK_CONSIDERATION skipped — one or both page IDs not found"
@@ -49,10 +49,10 @@ def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult
         strength=payload.strength,
         reasoning=payload.reasoning,
     )
-    db.save_link(link)
+    await db.save_link(link)
     print(
-        f"  [~] Consideration: {db.page_label(claim_id)} -> "
-        f"{db.page_label(question_id)} ({direction_str})"
+        f"  [~] Consideration: {await db.page_label(claim_id)} -> "
+        f"{await db.page_label(question_id)} ({direction_str})"
     )
     return MoveResult("Done.")
 

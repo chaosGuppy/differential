@@ -7,9 +7,9 @@ Exports three calling modes:
   - text_call: plain text call
 """
 
+import asyncio
 import os
-import time
-from collections.abc import Callable
+from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -56,7 +56,7 @@ class Tool:
     name: str
     description: str
     input_schema: dict
-    fn: Callable[[dict], str]
+    fn: Callable[[dict], Awaitable[str]]
 
 
 @dataclass
@@ -76,8 +76,8 @@ class AgentResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
-def _call_api(
-    client: anthropic.Anthropic,
+async def _call_api(
+    client: anthropic.AsyncAnthropic,
     system_prompt: str,
     messages: list[dict],
     tools: list[dict] | None = None,
@@ -95,7 +95,7 @@ def _call_api(
 
     for attempt in range(MAX_API_RETRIES):
         try:
-            return client.messages.create(**kwargs)
+            return await client.messages.create(**kwargs)
         except Exception as e:
             status = getattr(e, "status_code", None)
             name = type(e).__name__.lower()
@@ -114,12 +114,12 @@ def _call_api(
                 f"  [llm] API temporarily unavailable ({label}), "
                 f"retrying in {wait}s... (attempt {attempt + 1}/{MAX_API_RETRIES})"
             )
-            time.sleep(wait)
+            await asyncio.sleep(wait)
 
     raise RuntimeError("Unreachable: retry loop exhausted without raising")
 
 
-def agent_loop(
+async def agent_loop(
     system_prompt: str,
     user_message: str,
     tools: list[Tool],
@@ -141,7 +141,7 @@ def agent_loop(
             "ANTHROPIC_API_KEY environment variable not set. "
             "Set it before running the workspace."
         )
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     tool_defs = [
         {
@@ -158,7 +158,7 @@ def agent_loop(
     all_tool_calls: list[ToolCall] = []
 
     for round_num in range(max_rounds + 1):
-        response = _call_api(
+        response = await _call_api(
             client,
             system_prompt,
             messages,
@@ -193,7 +193,7 @@ def agent_loop(
                 )
             else:
                 try:
-                    result_str = fn(tu.input)
+                    result_str = await fn(tu.input)
                 except Exception as e:
                     result_str = f"Error: {e}"
                     tool_results.append(
@@ -241,7 +241,7 @@ def agent_loop(
     )
 
 
-def text_call(
+async def text_call(
     system_prompt: str,
     user_message: str = "",
     *,
@@ -255,20 +255,20 @@ def text_call(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise EnvironmentError("ANTHROPIC_API_KEY environment variable not set.")
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     msg_list = (
         messages
         if messages is not None
         else [{"role": "user", "content": user_message}]
     )
-    response = _call_api(client, system_prompt, msg_list, max_tokens=max_tokens)
+    response = await _call_api(client, system_prompt, msg_list, max_tokens=max_tokens)
     for block in response.content:
         if isinstance(block, TextBlock):
             return block.text
     return ""
 
 
-def structured_call(
+async def structured_call(
     system_prompt: str,
     user_message: str,
     response_model: type[BaseModel],
@@ -283,13 +283,13 @@ def structured_call(
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise EnvironmentError("ANTHROPIC_API_KEY environment variable not set.")
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     messages: list[MessageParam] = [{"role": "user", "content": user_message}]
 
     for attempt in range(MAX_API_RETRIES):
         try:
-            response = client.messages.parse(
+            response = await client.messages.parse(
                 model=MODEL,
                 max_tokens=max_tokens,
                 system=system_prompt,
@@ -322,6 +322,6 @@ def structured_call(
                 f"  [llm] API temporarily unavailable ({label}), "
                 f"retrying in {wait}s... (attempt {attempt + 1}/{MAX_API_RETRIES})"
             )
-            time.sleep(wait)
+            await asyncio.sleep(wait)
 
     raise RuntimeError("Unreachable: retry loop exhausted without raising")

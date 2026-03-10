@@ -12,9 +12,9 @@ class FlagFunninessPayload(BaseModel):
     note: str = Field(description="What seems off")
 
 
-def execute(payload: FlagFunninessPayload, call: Call, db: DB) -> MoveResult:
-    page_id = db.resolve_page_id(payload.page_id)
-    db.save_page_flag("funniness", call_id=call.id, note=payload.note, page_id=page_id)
+async def execute(payload: FlagFunninessPayload, call: Call, db: DB) -> MoveResult:
+    page_id = await db.resolve_page_id(payload.page_id)
+    await db.save_page_flag("funniness", call_id=call.id, note=payload.note, page_id=page_id)
     print(f"  [flag] Funniness flagged: {payload.note}")
     return MoveResult("Done.")
 

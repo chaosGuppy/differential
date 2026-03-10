@@ -16,7 +16,7 @@ from differential.models import Call, CallStatus, CallType
 from differential.tracer import CallTrace
 
 
-def run_scout(
+async def run_scout(
     question_id: str,
     call: Call,
     db: DB,
@@ -26,10 +26,10 @@ def run_scout(
     Returns (run_call_result, review_dict).
     """
     trace = CallTrace(call.id, db)
-    print(f"\n[SCOUT] {call.id[:8]} — {db.page_label(question_id)}")
+    print(f"\n[SCOUT] {call.id[:8]} — {await db.page_label(question_id)}")
 
     preloaded = call.context_page_ids or []
-    context_text, _, working_page_ids = build_call_context(
+    context_text, _, working_page_ids = await build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
     trace.record(
@@ -45,11 +45,11 @@ def run_scout(
         f"Question ID (use this when linking considerations): `{question_id}`"
     )
 
-    db.update_call_status(call.id, CallStatus.RUNNING)
-    result = run_call(CallType.SCOUT, task, context_text, call, db)
+    await db.update_call_status(call.id, CallStatus.RUNNING)
+    result = await run_call(CallType.SCOUT, task, context_text, call, db)
     if result.phase1_page_ids:
         trace.record("phase1_loaded", {"page_ids": result.phase1_page_ids})
-    phase2_loaded = extract_loaded_page_ids(result, db)
+    phase2_loaded = await extract_loaded_page_ids(result, db)
     if phase2_loaded:
         trace.record("phase2_loaded", {"page_ids": phase2_loaded})
     trace.record(
@@ -60,7 +60,7 @@ def run_scout(
         dict.fromkeys(preloaded + result.phase1_page_ids + phase2_loaded)
     )
     review_context = format_moves_for_review(result.moves)
-    review = run_closing_review(call, review_context, context_text, all_loaded_ids, db)
+    review = await run_closing_review(call, review_context, context_text, all_loaded_ids, db)
     remaining_fruit = 5
     if review:
         remaining_fruit = review.get("remaining_fruit", 5)
@@ -68,7 +68,7 @@ def run_scout(
             f"  [review] remaining_fruit={remaining_fruit}, "
             f"confidence={review.get('confidence_in_output', '?')}"
         )
-        print_page_ratings(review, db)
+        await print_page_ratings(review, db)
         trace.record(
             "review_complete",
             {
@@ -78,7 +78,7 @@ def run_scout(
         )
 
     call.review_json = review or {}
-    complete_call(
+    await complete_call(
         call,
         db,
         f"Scout complete. Created {len(result.created_page_ids)} pages. Remaining fruit: {remaining_fruit}",
