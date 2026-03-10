@@ -44,10 +44,6 @@ class CallTrace:
             self.events = []
 
 
-# ---------------------------------------------------------------------------
-# HTML visualization helpers
-# ---------------------------------------------------------------------------
-
 _UUID_LEN = 36
 
 
@@ -172,10 +168,6 @@ def _move_one_liner(move_data: dict) -> str:
         return move_data["note"]
     return ""
 
-
-# ---------------------------------------------------------------------------
-# Event renderers: one per event type
-# ---------------------------------------------------------------------------
 
 def _render_event_context_built(ev: dict, db: DB) -> str:
     data = ev.get("data", {})
@@ -331,10 +323,6 @@ def _render_event(ev: dict, db: DB) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Call node rendering
-# ---------------------------------------------------------------------------
-
 _CALL_COLORS = {
     "scout": "#e3f2fd",
     "assess": "#f3e5f5",
@@ -456,10 +444,6 @@ def _render_call_node(call: Call, db: DB, depth: int = 0) -> str:
         f"</div>"
     )
 
-
-# ---------------------------------------------------------------------------
-# CSS
-# ---------------------------------------------------------------------------
 
 _CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -607,10 +591,6 @@ details[open] > summary { margin-bottom: 0.4rem; }
 .footer { font-size: 0.72rem; color: #ccc; margin-top: 2rem; text-align: center; }
 """
 
-
-# ---------------------------------------------------------------------------
-# Top-level generation
-# ---------------------------------------------------------------------------
 
 def generate_trace(question_id_or_call_id: str, db: DB) -> Path:
     """Generate an HTML trace visualization. Returns the file path."""

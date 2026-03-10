@@ -77,6 +77,8 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 - Page summaries must be 10-15 words, self-contained headlines
 - Short IDs are first 8 chars of UUID, used in workspace maps and display
 - Always use absolute imports: `from differential.module import name` (no relative imports)
+- Always put imports at the top of the file, not inside functions
 - Use modern type syntax: `X | None` not `Optional[X]`, `list[str]` not `List[str]`, etc. No `from typing import Optional, List, Dict`.
 - Pages are immutable once written (squidgy layer); updates use SUPERSEDE_PAGE to create a new version pointing back to the old one
 - Multiline strings use parenthesized concatenation of single-quoted lines (`"line 1 " "line 2"`), not triple-quoted strings (`"""`). Only use `f""` on lines that actually contain `{placeholder}` expressions.
+- Do not add section divider comments (e.g. `# ----------` banners). Use blank lines between logical sections; the code should speak for itself.

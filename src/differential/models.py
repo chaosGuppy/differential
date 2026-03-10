@@ -5,8 +5,10 @@ Data models for the research workspace.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 import uuid
+
+from pydantic import BaseModel
 
 
 class PageType(str, Enum):
@@ -79,6 +81,18 @@ class ConsiderationDirection(str, Enum):
     SUPPORTS = "supports"
     OPPOSES = "opposes"
     NEUTRAL = "neutral"
+
+
+@dataclass
+class Move:
+    move_type: MoveType
+    payload: BaseModel
+
+
+@dataclass
+class Dispatch:
+    call_type: CallType
+    payload: dict[str, Any]
 
 
 @dataclass
