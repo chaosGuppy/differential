@@ -16,50 +16,23 @@ from differential.llm import (
     build_system_prompt,
     build_user_message,
     structured_call,
-    agent_loop
+    agent_loop,
 )
 from differential.models import (
     Call,
     CallStatus,
     CallType,
-    DISPATCHABLE_CALL_TYPES,
     Dispatch,
     Move,
     MoveType,
 )
+from differential.calls.dispatches import DISPATCH_DEFS
 from differential.moves.base import MoveState
 from differential.moves.load_page import LoadPagePayload
 from differential.moves.registry import MOVES
 
 if TYPE_CHECKING:
     from differential.tracer import CallTrace
-
-
-class DispatchPayload(BaseModel):
-    call_type: str = Field(
-        description=(
-            'Type of call to dispatch: "scout", "assess", or "prioritization"'
-        )
-    )
-    question_id: str = Field(description="Page ID of the question to investigate")
-    reason: str = Field("", description="Why this dispatch is a good use of budget")
-    budget: int | None = Field(
-        None, description="Budget to allocate (prioritization dispatches only)"
-    )
-    fruit_threshold: int | None = Field(
-        None, description="Remaining fruit threshold for stopping (scout dispatches only)"
-    )
-    max_rounds: int | None = Field(
-        None, description="Maximum scouting rounds (scout dispatches only)"
-    )
-    context_page_ids: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Optional full UUIDs of pages to pre-load into the dispatched call. "
-            "Use when you know a specific source document or consideration from "
-            "another question will be directly relevant. Use full UUIDs, not short IDs."
-        ),
-    )
 
 
 PHASE1_TASK = (
@@ -69,18 +42,11 @@ PHASE1_TASK = (
 )
 
 
-DISPATCH_TOOL_DESCRIPTION = (
-    "Dispatch a research call for a question. Available call types: "
-    "scout (find missing considerations; costs up to max_rounds calls, "
-    "stops early when fruit falls below fruit_threshold), "
-    "assess (render a judgement; costs 1 call), "
-    "prioritization (delegate structured investigation; costs the sub-budget you assign)."
-)
-
-
 class PageRating(BaseModel):
     page_id: str = Field(description="Short ID of the rated page")
-    score: int = Field(description="-1 = confusing, 0 = no help, 1 = helpful, 2 = very helpful")
+    score: int = Field(
+        description="-1 = confusing, 0 = no help, 1 = helpful, 2 = very helpful"
+    )
     note: str = Field("", description="One sentence on why")
 
 
@@ -93,77 +59,35 @@ class ReviewResponse(BaseModel):
             "7-8 = substantial work remains; 9-10 = barely started"
         )
     )
-    confidence_in_output: float = Field(description="0-5 confidence in the work just done")
-    context_was_adequate: bool = Field(description="Whether the context provided was sufficient")
+    confidence_in_output: float = Field(
+        description="0-5 confidence in the work just done"
+    )
+    context_was_adequate: bool = Field(
+        description="Whether the context provided was sufficient"
+    )
     what_was_missing: str = Field(
         "", description="What additional context would have helped"
     )
     tensions_noticed: str = Field(
         "", description="Any conflicts or inconsistencies noticed"
     )
-    self_assessment: str = Field(
-        "", description="1-2 sentences on how this call went"
-    )
-    suggested_next_steps: str = Field(
-        "", description="What should happen next"
-    )
+    self_assessment: str = Field("", description="1-2 sentences on how this call went")
+    suggested_next_steps: str = Field("", description="What should happen next")
     page_ratings: list[PageRating] = Field(
-        default_factory=list, description="Ratings for pages that were loaded into context"
+        default_factory=list,
+        description="Ratings for pages that were loaded into context",
     )
 
 
 @dataclass
 class RunCallResult:
     """Result of a run_call invocation."""
+
     created_page_ids: list[str] = field(default_factory=list)
     dispatches: list[Dispatch] = field(default_factory=list)
     moves: list[Move] = field(default_factory=list)
     phase1_page_ids: list[str] = field(default_factory=list)
     agent_result: AgentResult = field(default_factory=AgentResult)
-
-
-def _make_dispatch_tool(
-    state: MoveState,
-    subtree_ids: set[str] | None = None,
-    short_id_map: dict[str, str] | None = None,
-) -> Tool:
-    """Create a Tool that records a dispatch instruction."""
-
-    def fn(inp: dict) -> str:
-        call_type_str = inp.get("call_type", "")
-        try:
-            ct = CallType(call_type_str)
-        except ValueError:
-            return f"Unknown dispatch type: {call_type_str}"
-        if ct not in DISPATCHABLE_CALL_TYPES:
-            return f"Non-dispatchable call type: {call_type_str}"
-
-        if subtree_ids is not None:
-            raw_qid = inp.get("question_id", "")
-            resolved = raw_qid
-            if short_id_map and raw_qid in short_id_map:
-                resolved = short_id_map[raw_qid]
-            elif len(raw_qid) <= 8:
-                for full_id in state.created_page_ids:
-                    if full_id.startswith(raw_qid):
-                        resolved = full_id
-                        break
-            if resolved not in subtree_ids and resolved not in state.created_page_ids:
-                return (
-                    f"Question {raw_qid} is outside the scope subtree and was not "
-                    "created during this call. You can only dispatch on the scope "
-                    "question, its descendant sub-questions, or questions you just created."
-                )
-
-        state.dispatches.append(Dispatch(call_type=ct, payload=inp))
-        return "Dispatch recorded."
-
-    return Tool(
-        name="dispatch",
-        description=DISPATCH_TOOL_DESCRIPTION,
-        input_schema=DispatchPayload.model_json_schema(),
-        fn=fn,
-    )
 
 
 def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
@@ -187,8 +111,11 @@ def _run_phase1(
         load_tool = MOVES[MoveType.LOAD_PAGE].bind(state)
         phase1_msg = build_user_message(context_text, PHASE1_TASK)
         agent_loop(
-            system_prompt, phase1_msg, [load_tool],
-            max_tokens=2048, max_rounds=3,
+            system_prompt,
+            phase1_msg,
+            [load_tool],
+            max_tokens=2048,
+            max_rounds=3,
         )
         loaded_ids = []
         for m in state.moves:
@@ -244,13 +171,17 @@ def run_call(
 
     tools = [MOVES[mt].bind(state) for mt in available_moves]
     if call_type == CallType.PRIORITIZATION:
-        tools.append(_make_dispatch_tool(state, subtree_ids, short_id_map))
+        for ddef in DISPATCH_DEFS.values():
+            tools.append(ddef.bind(state, subtree_ids, short_id_map))
 
     user_message = build_user_message(context_text, task_description)
 
     agent_result = agent_loop(
-        system_prompt, user_message, tools,
-        max_tokens=max_tokens, max_rounds=max_rounds,
+        system_prompt,
+        user_message,
+        tools,
+        max_tokens=max_tokens,
+        max_rounds=max_rounds,
     )
 
     return RunCallResult(
@@ -374,9 +305,7 @@ def run_closing_review(
     except Exception as e:
         status = getattr(e, "status_code", None)
         reason = f"HTTP {status}" if status else type(e).__name__
-        print(
-            f"  [review] Closing review skipped ({reason}) — continuing."
-        )
+        print(f"  [review] Closing review skipped ({reason}) — continuing.")
         return None
 
 

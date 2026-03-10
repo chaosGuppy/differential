@@ -39,23 +39,30 @@ def run_prioritization(
     )
 
     result = run_call(
-        CallType.PRIORITIZATION, task, context_text, call, db,
+        CallType.PRIORITIZATION,
+        task,
+        context_text,
+        call,
+        db,
         subtree_ids=subtree_ids,
         short_id_map=short_id_map,
     )
 
-    trace.record("dispatches_planned", {
-        "dispatches": [
-            {
-                "call_type": d.call_type.value,
-                "question_id": d.payload.get("question_id", ""),
-                "budget": d.payload.get("budget", 1),
-                "reason": d.payload.get("reason", ""),
-            }
-            for d in result.dispatches
-        ],
-    })
-    trace.record("moves_executed", moves_to_trace_data(result.moves, result.created_page_ids))
+    trace.record(
+        "dispatches_planned",
+        {
+            "dispatches": [
+                {
+                    "call_type": d.call_type.value,
+                    **d.payload.model_dump(exclude_defaults=True),
+                }
+                for d in result.dispatches
+            ],
+        },
+    )
+    trace.record(
+        "moves_executed", moves_to_trace_data(result.moves, result.created_page_ids)
+    )
 
     summary = {
         "dispatches": result.dispatches,
