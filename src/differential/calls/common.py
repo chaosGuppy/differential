@@ -122,7 +122,11 @@ class RunCallResult:
     agent_result: AgentResult = field(default_factory=AgentResult)
 
 
-def _make_dispatch_tool(state: MoveState) -> Tool:
+def _make_dispatch_tool(
+    state: MoveState,
+    subtree_ids: set[str] | None = None,
+    short_id_map: dict[str, str] | None = None,
+) -> Tool:
     """Create a Tool that records a dispatch instruction."""
 
     def fn(inp: dict) -> str:
@@ -133,6 +137,24 @@ def _make_dispatch_tool(state: MoveState) -> Tool:
             return f"Unknown dispatch type: {call_type_str}"
         if ct not in DISPATCHABLE_CALL_TYPES:
             return f"Non-dispatchable call type: {call_type_str}"
+
+        if subtree_ids is not None:
+            raw_qid = inp.get("question_id", "")
+            resolved = raw_qid
+            if short_id_map and raw_qid in short_id_map:
+                resolved = short_id_map[raw_qid]
+            elif len(raw_qid) <= 8:
+                for full_id in state.created_page_ids:
+                    if full_id.startswith(raw_qid):
+                        resolved = full_id
+                        break
+            if resolved not in subtree_ids and resolved not in state.created_page_ids:
+                return (
+                    f"Question {raw_qid} is outside the scope subtree and was not "
+                    "created during this call. You can only dispatch on the scope "
+                    "question, its descendant sub-questions, or questions you just created."
+                )
+
         state.dispatches.append(Dispatch(call_type=ct, payload=inp))
         return "Dispatch recorded."
 
@@ -196,6 +218,8 @@ def run_call(
     available_moves: list[MoveType] | None = None,
     max_tokens: int = 4096,
     max_rounds: int = 3,
+    subtree_ids: set[str] | None = None,
+    short_id_map: dict[str, str] | None = None,
 ) -> RunCallResult:
     """Run a workspace call with tool use.
 
@@ -220,7 +244,7 @@ def run_call(
 
     tools = [MOVES[mt].bind(state) for mt in available_moves]
     if call_type == CallType.PRIORITIZATION:
-        tools.append(_make_dispatch_tool(state))
+        tools.append(_make_dispatch_tool(state, subtree_ids, short_id_map))
 
     user_message = build_user_message(context_text, task_description)
 
