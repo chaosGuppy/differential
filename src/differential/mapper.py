@@ -129,12 +129,12 @@ def _render_judgement(j: Page, index: int, total: int) -> str:
 </div>"""
 
 
-def _render_question(question_id: str, db: DB, depth: int = 0) -> str:
-    question = db.get_page(question_id)
+async def _render_question(question_id: str, db: DB, depth: int = 0) -> str:
+    question = await db.get_page(question_id)
     if not question:
         return ""
 
-    considerations = db.get_considerations_for_question(question_id)
+    considerations = await db.get_considerations_for_question(question_id)
     supports = sorted(
         [
             (p, l)
@@ -164,9 +164,9 @@ def _render_question(question_id: str, db: DB, depth: int = 0) -> str:
     )
 
     judgements = sorted(
-        db.get_judgements_for_question(question_id), key=lambda j: j.created_at
+        await db.get_judgements_for_question(question_id), key=lambda j: j.created_at
     )
-    children = db.get_child_questions(question_id)
+    children = await db.get_child_questions(question_id)
 
     # Stats line
     parts = []
@@ -213,7 +213,7 @@ def _render_question(question_id: str, db: DB, depth: int = 0) -> str:
     if children:
         ch_html = '<div class="section"><h4>Sub-questions</h4>'
         for child in children:
-            ch_html += _render_question(child.id, db, depth=depth + 1)
+            ch_html += await _render_question(child.id, db, depth=depth + 1)
         ch_html += "</div>"
 
     q_sel_id = f"qb-{question_id[:8]}"
@@ -318,15 +318,15 @@ details[open] > summary { margin-bottom: 0.35rem; }
 """
 
 
-def generate_map(question_id: str, db: DB) -> Path:
+async def generate_map(question_id: str, db: DB) -> Path:
     """Generate an HTML research map and return the file path."""
     MAPS_DIR.mkdir(parents=True, exist_ok=True)
 
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         raise ValueError(f"Question {question_id} not found")
 
-    tree_html = _render_question(question_id, db)
+    tree_html = await _render_question(question_id, db)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     slug = "".join(c if c.isalnum() or c in " -" else "" for c in question.summary[:50])

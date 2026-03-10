@@ -32,8 +32,8 @@ class ProposeHypothesisPayload(BaseModel):
     strength: float = Field(2.5, description="0-5 consideration strength")
 
 
-def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult:
-    parent_id = db.resolve_page_id(payload.parent_question_id)
+async def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult:
+    parent_id = await db.resolve_page_id(payload.parent_question_id)
     if not parent_id:
         log.warning(
             "PROPOSE_HYPOTHESIS: parent_question_id not found: %s",
@@ -63,9 +63,9 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         provenance_call_id=call.id,
         extra={"hypothesis": True},
     )
-    db.save_page(claim)
+    await db.save_page(claim)
     write_page_file(claim)
-    log.info("Hypothesis claim created: %s", db.page_label(claim.id))
+    log.info("Hypothesis claim created: %s", claim.id[:8])
 
     direction_str = payload.direction.lower()
     try:
@@ -74,7 +74,7 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         log.debug("Invalid direction '%s' defaulting to neutral", direction_str)
         direction = ConsiderationDirection.NEUTRAL
 
-    db.save_link(
+    await db.save_link(
         PageLink(
             from_page_id=claim.id,
             to_page_id=parent_id,
@@ -104,11 +104,11 @@ def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult
         provenance_call_id=call.id,
         extra={"hypothesis": True, "status": "open"},
     )
-    db.save_page(question)
+    await db.save_page(question)
     write_page_file(question)
-    log.info("Hypothesis question created: %s", db.page_label(question.id))
+    log.info("Hypothesis question created: %s", question.id[:8])
 
-    db.save_link(
+    await db.save_link(
         PageLink(
             from_page_id=parent_id,
             to_page_id=question.id,

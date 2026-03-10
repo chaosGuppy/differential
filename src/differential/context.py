@@ -3,7 +3,6 @@ Build context text from workspace pages for injection into LLM prompts.
 """
 
 import logging
-from typing import Optional
 
 from differential.database import DB
 from differential.models import Page, PageType, Workspace
@@ -12,15 +11,15 @@ from differential.workspace_map import build_workspace_map
 log = logging.getLogger(__name__)
 
 
-def collect_subtree_ids(question_id: str, db: DB) -> set[str]:
+async def collect_subtree_ids(question_id: str, db: DB) -> set[str]:
     """Recursively collect all question IDs in a subtree (inclusive)."""
     result = {question_id}
-    for child in db.get_child_questions(question_id):
-        result |= collect_subtree_ids(child.id, db)
+    for child in await db.get_child_questions(question_id):
+        result |= await collect_subtree_ids(child.id, db)
     return result
 
 
-def format_page(page: Page, db: Optional[DB] = None) -> str:
+async def format_page(page: Page, db: DB | None = None) -> str:
     """Format a single page as readable text for LLM context."""
     extra = page.extra or {}
     lines = [
@@ -36,7 +35,7 @@ def format_page(page: Page, db: Optional[DB] = None) -> str:
 
     # For questions, include considerations if db provided
     if db and page.page_type == PageType.QUESTION:
-        considerations = db.get_considerations_for_question(page.id)
+        considerations = await db.get_considerations_for_question(page.id)
         if considerations:
             lines.append("")
             lines.append("**Considerations:**")
@@ -49,7 +48,7 @@ def format_page(page: Page, db: Optional[DB] = None) -> str:
                 if link.reasoning:
                     lines.append(f"  Reasoning: {link.reasoning}")
 
-        judgements = db.get_judgements_for_question(page.id)
+        judgements = await db.get_judgements_for_question(page.id)
         if judgements:
             lines.append("")
             lines.append("**Existing judgements:**")
@@ -59,17 +58,17 @@ def format_page(page: Page, db: Optional[DB] = None) -> str:
     return "\n".join(lines)
 
 
-def format_pages_block(pages: list[Page], header: str, db: Optional[DB] = None) -> str:
+async def format_pages_block(pages: list[Page], header: str, db: DB | None = None) -> str:
     if not pages:
         return ""
     parts = [f"## {header}", ""]
     for page in pages:
-        parts.append(format_page(page, db=db))
+        parts.append(await format_page(page, db=db))
         parts.append("")
     return "\n".join(parts)
 
 
-def build_context_for_question(
+async def build_context_for_question(
     question_id: str,
     db: DB,
     include_considerations: bool = True,
@@ -81,17 +80,17 @@ def build_context_for_question(
     Returns (context_text, loaded_page_ids) where loaded_page_ids lists every
     page whose full content was included.
     """
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         return f"[Question {question_id} not found]", []
 
     loaded_ids = [question_id]
     parts = ["# Workspace Context", ""]
-    parts.append(format_page(question, db=db))
+    parts.append(await format_page(question, db=db))
     parts.append("")
 
     if include_considerations:
-        considerations = db.get_considerations_for_question(question_id)
+        considerations = await db.get_considerations_for_question(question_id)
         if considerations:
             parts.append("## Existing Considerations")
             parts.append("")
@@ -108,19 +107,19 @@ def build_context_for_question(
                 parts.append("")
 
     if include_judgements:
-        judgements = db.get_judgements_for_question(question_id)
+        judgements = await db.get_judgements_for_question(question_id)
         if judgements:
             parts.append("## Existing Judgements")
             parts.append("")
             for j in judgements:
                 loaded_ids.append(j.id)
-                parts.append(format_page(j))
+                parts.append(await format_page(j))
                 parts.append("")
 
-        children = db.get_child_questions(question_id)
+        children = await db.get_child_questions(question_id)
         child_judgements = []
         for child in children:
-            for j in db.get_judgements_for_question(child.id):
+            for j in await db.get_judgements_for_question(child.id):
                 child_judgements.append((child, j))
         if child_judgements:
             parts.append("## Sub-question Judgements")
@@ -128,16 +127,16 @@ def build_context_for_question(
             for child, j in child_judgements:
                 loaded_ids.append(j.id)
                 parts.append(f"*On sub-question: {child.summary} (`{child.id}`)*")
-                parts.append(format_page(j))
+                parts.append(await format_page(j))
                 parts.append("")
 
     return "\n".join(parts), loaded_ids
 
 
-def _build_question_index(question_id: str, db: DB, indent: int = 0) -> list[str]:
+async def _build_question_index(question_id: str, db: DB, indent: int = 0) -> list[str]:
     """Recursively build a flat index of all questions in the tree with their IDs.
     Includes consideration count, last scout fruit/date, and hypothesis flag."""
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         return []
     prefix = "  " * indent
@@ -147,8 +146,8 @@ def _build_question_index(question_id: str, db: DB, indent: int = 0) -> list[str
     is_hypothesis = extra.get("hypothesis", False)
     hypothesis_tag = " [hypothesis]" if is_hypothesis else ""
 
-    n_cons = len(db.get_considerations_for_question(question_id))
-    scout_info = db.get_last_scout_info(question_id)
+    n_cons = len(await db.get_considerations_for_question(question_id))
+    scout_info = await db.get_last_scout_info(question_id)
     if scout_info:
         date_str = scout_info[0][:10]
         fruit = scout_info[1]
@@ -161,15 +160,15 @@ def _build_question_index(question_id: str, db: DB, indent: int = 0) -> list[str
         f"{prefix}{tag}{hypothesis_tag} `{question_id}` — {question.summary} "
         f"({n_cons} cons · {scout_str})"
     ]
-    for child in db.get_child_questions(question_id):
-        lines.extend(_build_question_index(child.id, db, indent + 1))
+    for child in await db.get_child_questions(question_id):
+        lines.extend(await _build_question_index(child.id, db, indent + 1))
     return lines
 
 
-def build_call_context(
+async def build_call_context(
     question_id: str,
     db: DB,
-    extra_page_ids: Optional[list[str]] = None,
+    extra_page_ids: list[str] | None = None,
 ) -> tuple[str, dict[str, str], list[str]]:
     """Build full context for a scout/assess/ingest call.
 
@@ -183,8 +182,8 @@ def build_call_context(
     judgements).
     """
     log.debug("build_call_context: question=%s", question_id[:8])
-    map_text, short_id_map = build_workspace_map(db)
-    working_context, working_page_ids = build_context_for_question(question_id, db)
+    map_text, short_id_map = await build_workspace_map(db)
+    working_context, working_page_ids = await build_context_for_question(question_id, db)
 
     parts = [
         map_text,
@@ -197,10 +196,10 @@ def build_call_context(
 
     if extra_page_ids:
         for pid in extra_page_ids:
-            page = db.get_page(pid)
+            page = await db.get_page(pid)
             if page:
                 parts += ["", "---", "", f"## Pre-loaded Page: `{pid[:8]}`", ""]
-                parts.append(format_page(page, db=db))
+                parts.append(await format_page(page, db=db))
 
     context_text = "\n".join(parts)
     log.debug(
@@ -210,21 +209,21 @@ def build_call_context(
     return context_text, short_id_map, working_page_ids
 
 
-def build_prioritization_context(
-    db: DB, scope_question_id: Optional[str] = None
+async def build_prioritization_context(
+    db: DB, scope_question_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     """Build context for a prioritization call.
 
     Returns (context_text, short_id_map) where short_id_map maps 8-char
     short IDs to full UUIDs.
     """
-    map_text, short_id_map = build_workspace_map(db)
+    map_text, short_id_map = await build_workspace_map(db)
     parts = [map_text, "", "---", "", "# Prioritization Context", ""]
 
     if scope_question_id:
-        question = db.get_page(scope_question_id)
+        question = await db.get_page(scope_question_id)
         if question:
-            index_lines = _build_question_index(scope_question_id, db)
+            index_lines = await _build_question_index(scope_question_id, db)
             parts.append("## Scope Subtree — Dispatchable Questions")
             parts.append("")
             parts.append(
@@ -239,21 +238,21 @@ def build_prioritization_context(
             # Full detail on scope question and children
             parts.append("## Scope Question")
             parts.append("")
-            parts.append(format_page(question, db=db))
+            parts.append(await format_page(question, db=db))
             parts.append("")
 
-            children = db.get_child_questions(scope_question_id)
+            children = await db.get_child_questions(scope_question_id)
             if children:
                 parts.append("## Sub-questions")
                 parts.append("")
                 for child in children:
-                    parts.append(format_page(child, db=db))
+                    parts.append(await format_page(child, db=db))
                     parts.append("")
 
     # Sources and ingest history
-    source_pages = db.get_pages(page_type=PageType.SOURCE)
+    source_pages = await db.get_pages(page_type=PageType.SOURCE)
     if source_pages:
-        ingest_history = db.get_ingest_history()
+        ingest_history = await db.get_ingest_history()
         parts.append("## Sources and Ingest History")
         parts.append("")
         for src in source_pages:
@@ -264,7 +263,7 @@ def build_prioritization_context(
             parts.append(f"[SRC] `{src.id[:8]}` — {filename} ({char_count:,} chars)")
             if question_ids:
                 for qid in question_ids:
-                    q = db.get_page(qid)
+                    q = await db.get_page(qid)
                     q_summary = q.summary[:60] if q else qid[:8]
                     parts.append(f"  Ingested for: `{qid[:8]}` — {q_summary}")
             else:

@@ -93,17 +93,17 @@ class RunCallResult:
     agent_result: AgentResult = field(default_factory=AgentResult)
 
 
-def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
+async def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
     """Format loaded pages as context text for phase 2."""
     parts = []
     for pid in page_ids:
-        page = db.get_page(pid)
+        page = await db.get_page(pid)
         if page:
-            parts.append(f"### Page `{pid[:8]}`\n\n{format_page(page, db=db)}")
+            parts.append(f"### Page `{pid[:8]}`\n\n{await format_page(page, db=db)}")
     return "\n\n---\n\n".join(parts)
 
 
-def _run_phase1(
+async def _run_phase1(
     system_prompt: str,
     context_text: str,
     state: MoveState,
@@ -114,7 +114,7 @@ def _run_phase1(
     try:
         load_tool = MOVES[MoveType.LOAD_PAGE].bind(state)
         phase1_msg = build_user_message(context_text, PHASE1_TASK)
-        agent_loop(
+        await agent_loop(
             system_prompt,
             phase1_msg,
             [load_tool],
@@ -125,11 +125,11 @@ def _run_phase1(
         for m in state.moves:
             if m.move_type == MoveType.LOAD_PAGE:
                 assert isinstance(m.payload, LoadPagePayload)
-                full_id = db.resolve_page_id(m.payload.page_id)
+                full_id = await db.resolve_page_id(m.payload.page_id)
                 if full_id:
                     loaded_ids.append(full_id)
         if loaded_ids:
-            labels = [db.page_label(pid) for pid in loaded_ids]
+            labels = [await db.page_label(pid) for pid in loaded_ids]
             log.info("Phase 1 loaded %d pages: %s", len(loaded_ids), labels)
         else:
             log.debug("Phase 1 completed with no pages loaded")
@@ -139,7 +139,7 @@ def _run_phase1(
         return []
 
 
-def run_call(
+async def run_call(
     call_type: CallType,
     task_description: str,
     context_text: str,
@@ -174,9 +174,9 @@ def run_call(
 
     phase1_ids: list[str] = []
     if call_type != CallType.PRIORITIZATION:
-        phase1_ids = _run_phase1(system_prompt, context_text, state, db)
+        phase1_ids = await _run_phase1(system_prompt, context_text, state, db)
         if phase1_ids:
-            extra_text = _format_loaded_pages(phase1_ids, db)
+            extra_text = await _format_loaded_pages(phase1_ids, db)
             context_text = context_text + "\n\n## Loaded Pages\n\n" + extra_text
 
     tools = [MOVES[mt].bind(state) for mt in available_moves]
@@ -186,7 +186,7 @@ def run_call(
 
     user_message = build_user_message(context_text, task_description)
 
-    agent_result = agent_loop(
+    agent_result = await agent_loop(
         system_prompt,
         user_message,
         tools,
@@ -208,14 +208,14 @@ def run_call(
     )
 
 
-def extract_loaded_page_ids(result: RunCallResult, db: DB) -> list[str]:
+async def extract_loaded_page_ids(result: RunCallResult, db: DB) -> list[str]:
     """Extract full page IDs for LOAD_PAGE moves from phase 2 only."""
     phase1_set = set(result.phase1_page_ids)
     loaded = []
     for m in result.moves:
         if m.move_type == MoveType.LOAD_PAGE:
             assert isinstance(m.payload, LoadPagePayload)
-            full_id = db.resolve_page_id(m.payload.page_id)
+            full_id = await db.resolve_page_id(m.payload.page_id)
             if full_id and full_id not in phase1_set:
                 loaded.append(full_id)
     return loaded
@@ -244,33 +244,33 @@ REVIEW_SYSTEM_PROMPT = (
 )
 
 
-def log_page_ratings(review: dict, db: DB) -> None:
+async def log_page_ratings(review: dict, db: DB) -> None:
     ratings = review.get("page_ratings", [])
     if not ratings:
         return
     score_labels = {-1: "confusing", 0: "no help", 1: "helpful", 2: "very helpful"}
     for r in ratings:
         pid = r.get("page_id", "?")
-        resolved = db.resolve_page_id(pid) if pid != "?" else None
-        page_label = db.page_label(resolved or pid) if resolved else f"[{pid}]"
+        resolved = await db.resolve_page_id(pid) if pid != "?" else None
+        page_label = await db.page_label(resolved or pid) if resolved else f"[{pid}]"
         score = r.get("score", "?")
         note = r.get("note", "")
         label = score_labels.get(score, str(score))
         log.info("Page rating: %s [%s]: %s", page_label, label, note)
 
 
-def complete_call(
+async def complete_call(
     call: Call, db: DB, summary: str, trace: CallTrace | None = None
 ) -> None:
     call.status = CallStatus.COMPLETE
     call.completed_at = datetime.now(UTC)
     call.result_summary = summary
-    db.save_call(call)
+    await db.save_call(call)
     if trace:
-        trace.save()
+        await trace.save()
 
 
-def run_closing_review(
+async def run_closing_review(
     call: Call,
     main_output: str,
     context_text: str,
@@ -282,7 +282,7 @@ def run_closing_review(
     if loaded_page_ids and db:
         page_lines = []
         for pid in loaded_page_ids:
-            page = db.get_page(pid)
+            page = await db.get_page(pid)
             if page:
                 page_lines.append(f'  - `{pid[:8]}`: "{page.summary[:120]}"')
         if page_lines:
@@ -308,7 +308,7 @@ def run_closing_review(
     )
     try:
         user_message = build_user_message(context_text, review_task)
-        review = structured_call(
+        review = await structured_call(
             system_prompt=REVIEW_SYSTEM_PROMPT,
             user_message=user_message,
             response_model=ReviewResponse,
@@ -323,10 +323,10 @@ def run_closing_review(
             )
             if db:
                 for r in review.get("page_ratings", []):
-                    pid = db.resolve_page_id(r.get("page_id", ""))
+                    pid = await db.resolve_page_id(r.get("page_id", ""))
                     score = r.get("score")
                     if pid and isinstance(score, int):
-                        db.save_page_rating(pid, call.id, score, r.get("note", ""))
+                        await db.save_page_rating(pid, call.id, score, r.get("note", ""))
         else:
             log.warning("Closing review returned None for call=%s", call.id[:8])
         return review

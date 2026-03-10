@@ -17,7 +17,7 @@ def _load_prompt_file(name: str) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
-def build_research_tree(
+async def build_research_tree(
     question_id: str, db: DB, depth: int = 0, max_depth: int = 4
 ) -> str:
     """
@@ -25,7 +25,7 @@ def build_research_tree(
     the question itself, all its considerations (with full content),
     all its judgements, and all sub-questions (recursively).
     """
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         return ""
 
@@ -41,7 +41,7 @@ def build_research_tree(
         )
 
     # Considerations
-    considerations = db.get_considerations_for_question(question_id)
+    considerations = await db.get_considerations_for_question(question_id)
     if considerations:
         supports = [
             (p, l)
@@ -86,7 +86,7 @@ def build_research_tree(
             parts.append("")
 
     # Judgements — oldest first so the evolution of thinking is legible
-    judgements = db.get_judgements_for_question(question_id)
+    judgements = await db.get_judgements_for_question(question_id)
     if judgements:
         ordered = sorted(judgements, key=lambda j: j.created_at)
         for i, j in enumerate(ordered):
@@ -108,11 +108,11 @@ def build_research_tree(
 
     # Sub-questions (recurse)
     if depth < max_depth:
-        children = db.get_child_questions(question_id)
+        children = await db.get_child_questions(question_id)
         if children:
             for child in children:
                 parts.append(
-                    build_research_tree(
+                    await build_research_tree(
                         child.id, db, depth=depth + 1, max_depth=max_depth
                     )
                 )
@@ -120,16 +120,16 @@ def build_research_tree(
     return "\n".join(parts)
 
 
-def generate_summary(question_id: str, db: DB) -> str:
+async def generate_summary(question_id: str, db: DB) -> str:
     """
     Generate an executive summary of research on a question.
     Returns the summary as a string.
     """
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         raise ValueError(f"Question {question_id} not found")
 
-    research_tree = build_research_tree(question_id, db)
+    research_tree = await build_research_tree(question_id, db)
 
     if not research_tree.strip():
         return f"No research found for question: {question.summary}"
@@ -143,7 +143,7 @@ def generate_summary(question_id: str, db: DB) -> str:
         f"{closing}"
     )
 
-    return text_call(
+    return await text_call(
         system_prompt=system_prompt, user_message=user_message, max_tokens=8192
     )
 

@@ -20,7 +20,7 @@ from differential.tracer import CallTrace
 log = logging.getLogger(__name__)
 
 
-def run_assess(
+async def run_assess(
     question_id: str,
     call: Call,
     db: DB,
@@ -33,7 +33,7 @@ def run_assess(
     log.info("Assess starting: call=%s, question=%s", call.id[:8], question_id[:8])
 
     preloaded = call.context_page_ids or []
-    context_text, _, working_page_ids = build_call_context(
+    context_text, _, working_page_ids = await build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
     trace.record(
@@ -52,11 +52,11 @@ def run_assess(
         "Even if uncertain, commit to a position."
     )
 
-    db.update_call_status(call.id, CallStatus.RUNNING)
-    result = run_call(CallType.ASSESS, task, context_text, call, db)
+    await db.update_call_status(call.id, CallStatus.RUNNING)
+    result = await run_call(CallType.ASSESS, task, context_text, call, db)
     if result.phase1_page_ids:
         trace.record("phase1_loaded", {"page_ids": result.phase1_page_ids})
-    phase2_loaded = extract_loaded_page_ids(result, db)
+    phase2_loaded = await extract_loaded_page_ids(result, db)
     if phase2_loaded:
         trace.record("phase2_loaded", {"page_ids": phase2_loaded})
     trace.record(
@@ -67,14 +67,14 @@ def run_assess(
         dict.fromkeys(preloaded + result.phase1_page_ids + phase2_loaded)
     )
     review_context = format_moves_for_review(result.moves)
-    review = run_closing_review(call, review_context, context_text, all_loaded_ids, db)
+    review = await run_closing_review(call, review_context, context_text, all_loaded_ids, db)
     if review:
         log.info(
             "Assess review: confidence=%s, self_assessment=%s",
             review.get("confidence_in_output", "?"),
             review.get("self_assessment", "")[:80],
         )
-        log_page_ratings(review, db)
+        await log_page_ratings(review, db)
         trace.record(
             "review_complete",
             {
@@ -88,7 +88,7 @@ def run_assess(
         "Assess complete: call=%s, pages_created=%d",
         call.id[:8], len(result.created_page_ids),
     )
-    complete_call(
+    await complete_call(
         call,
         db,
         f"Assess complete. Created {len(result.created_page_ids)} pages.",

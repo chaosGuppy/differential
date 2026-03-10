@@ -89,7 +89,7 @@ def _parse_slash_command(text: str) -> tuple[str, str, int | None] | None:
     return command, question_text, budget
 
 
-def _add_question(question_text: str, parent_id: str, db: DB) -> str:
+async def _add_question(question_text: str, parent_id: str, db: DB) -> str:
     """Create a question page linked as a child of parent_id. Returns new page ID."""
     page = Page(
         page_type=PageType.QUESTION,
@@ -102,20 +102,20 @@ def _add_question(question_text: str, parent_id: str, db: DB) -> str:
         provenance_model="human",
         provenance_call_type="chat",
         provenance_call_id="chat",
-        extra=json.dumps({"status": "open"}),
+        extra={"status": "open"},
     )
-    db.save_page(page)
+    await db.save_page(page)
     link = PageLink(
         from_page_id=parent_id,
         to_page_id=page.id,
         link_type=LinkType.CHILD_QUESTION,
         reasoning="Added during chat session",
     )
-    db.save_link(link)
+    await db.save_link(link)
     return page.id
 
 
-def _handle_slash_command(
+async def _handle_slash_command(
     command: str,
     question_text: str,
     budget: int | None,
@@ -131,7 +131,7 @@ def _handle_slash_command(
         return
 
     if command == "add":
-        page_id = _add_question(question_text, scope_question_id, db)
+        page_id = await _add_question(question_text, scope_question_id, db)
         print(dim(f"\n  Question added: {page_id}"))
         print(
             dim(
@@ -141,31 +141,31 @@ def _handle_slash_command(
 
     elif command == "investigate":
         effective_budget = budget if budget is not None else DEFAULT_INVESTIGATE_BUDGET
-        page_id = _add_question(question_text, scope_question_id, db)
+        page_id = await _add_question(question_text, scope_question_id, db)
         print(dim(f"\n  Question added: {page_id}"))
         print(dim(f"  Investigating with budget {effective_budget}...\n"))
-        db.add_budget(effective_budget)
-        Orchestrator(db).run(page_id)
-        total, used = db.get_budget()
+        await db.add_budget(effective_budget)
+        await Orchestrator(db).run(page_id)
+        total, used = await db.get_budget()
         print(dim(f"\n  Investigation complete. Budget used: {used}/{total}"))
 
     else:
         print(dim(f"  Unknown command: /{command}. Type /help for available commands."))
 
 
-def run_chat(question_id: str, db: DB) -> None:
+async def run_chat(question_id: str, db: DB) -> None:
     """
     Start an interactive chat session grounded in the research for a question.
     Maintains conversation history for follow-up questions.
     Use slash commands to add questions for investigation.
     """
-    question = db.get_page(question_id)
+    question = await db.get_page(question_id)
     if not question:
         print(f"Question {question_id} not found.")
         return
 
     print(f"\nLoading research context for: {question.summary[:80]}")
-    research_tree = build_research_tree(question_id, db)
+    research_tree = await build_research_tree(question_id, db)
 
     if not research_tree.strip():
         print("No research found for this question yet.")
@@ -200,14 +200,14 @@ def run_chat(question_id: str, db: DB) -> None:
         parsed = _parse_slash_command(user_input)
         if parsed is not None:
             command, question_text, budget = parsed
-            _handle_slash_command(command, question_text, budget, question_id, db)
+            await _handle_slash_command(command, question_text, budget, question_id, db)
             continue
 
         # Normal chat message
         history.append({"role": "user", "content": user_input})
 
         try:
-            response = text_call(
+            response = await text_call(
                 system_prompt=system_prompt,
                 messages=history,
                 max_tokens=1024,

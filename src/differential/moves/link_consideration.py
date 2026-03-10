@@ -30,9 +30,9 @@ class LinkConsiderationPayload(BaseModel):
     )
 
 
-def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult:
-    claim_id = db.resolve_page_id(payload.claim_id)
-    question_id = db.resolve_page_id(payload.question_id)
+async def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult:
+    claim_id = await db.resolve_page_id(payload.claim_id)
+    question_id = await db.resolve_page_id(payload.question_id)
     if not claim_id or not question_id:
         log.warning(
             "LINK_CONSIDERATION skipped: claim_id=%s, question_id=%s",
@@ -57,7 +57,7 @@ def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult
         strength=payload.strength,
         reasoning=payload.reasoning,
     )
-    db.save_link(link)
+    await db.save_link(link)
     log.info(
         "Consideration linked: %s -> %s (%s)",
         claim_id[:8], question_id[:8], direction_str,

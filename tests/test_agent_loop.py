@@ -10,10 +10,19 @@ from differential.llm import Tool, agent_loop, text_call, structured_call
 from pydantic import BaseModel, Field
 
 
+async def _add(inp: dict) -> str:
+    return str(inp["a"] + inp["b"])
+
+
+async def _fail(inp: dict) -> str:
+    raise ValueError("boom")
+
+
+
 @pytest.mark.llm
-def test_text_only_returns_nonempty_text():
+async def test_text_only_returns_nonempty_text():
     """agent_loop with no tools should return text."""
-    result = agent_loop(
+    result = await agent_loop(
         "You are a helpful assistant.",
         "Say hello in one word.",
         tools=[],
@@ -24,7 +33,7 @@ def test_text_only_returns_nonempty_text():
 
 
 @pytest.mark.llm
-def test_tool_is_called_and_result_recorded():
+async def test_tool_is_called_and_result_recorded():
     """When given a tool that matches the task, the LLM calls it."""
     tool = Tool(
         name="add",
@@ -37,10 +46,10 @@ def test_tool_is_called_and_result_recorded():
             },
             "required": ["a", "b"],
         },
-        fn=lambda inp: str(inp["a"] + inp["b"]),
+        fn=_add,
     )
 
-    result = agent_loop(
+    result = await agent_loop(
         "You are a calculator. Use the add tool to answer.",
         "What is 3 + 7?",
         tools=[tool],
@@ -55,16 +64,16 @@ def test_tool_is_called_and_result_recorded():
 
 
 @pytest.mark.llm
-def test_tool_error_does_not_crash_loop():
+async def test_tool_error_does_not_crash_loop():
     """If a tool raises, the loop continues and returns a result."""
     tool = Tool(
         name="fail",
         description="A tool that always fails.",
         input_schema={"type": "object", "properties": {}},
-        fn=lambda inp: (_ for _ in ()).throw(ValueError("boom")),
+        fn=_fail,
     )
 
-    result = agent_loop(
+    result = await agent_loop(
         "You are a test assistant. Try the fail tool, then respond.",
         "Please call the fail tool.",
         tools=[tool],
@@ -77,17 +86,22 @@ def test_tool_error_does_not_crash_loop():
 
 
 @pytest.mark.llm
-def test_max_rounds_limits_tool_calls():
+async def test_max_rounds_limits_tool_calls():
     """The loop should not exceed max_rounds of tool calling."""
     call_count = []
+
+    async def ping(inp: dict) -> str:
+        call_count.append(1)
+        return "pong"
+
     tool = Tool(
         name="ping",
         description="Ping. Always call this again after getting a result.",
         input_schema={"type": "object", "properties": {}},
-        fn=lambda inp: (call_count.append(1), "pong")[1],
+        fn=ping,
     )
 
-    agent_loop(
+    await agent_loop(
         "You must call the ping tool every turn. Never stop calling it.",
         "Start pinging.",
         tools=[tool],
@@ -100,9 +114,9 @@ def test_max_rounds_limits_tool_calls():
 
 
 @pytest.mark.llm
-def test_text_call_returns_string():
+async def test_text_call_returns_string():
     """text_call should return a non-empty string."""
-    result = text_call(
+    result = await text_call(
         "You are a helpful assistant.",
         "Say 'yes' and nothing else.",
         max_tokens=16,
@@ -112,14 +126,14 @@ def test_text_call_returns_string():
 
 
 @pytest.mark.llm
-def test_structured_call_returns_parsed_dict():
+async def test_structured_call_returns_parsed_dict():
     """structured_call should return a dict matching the response model."""
 
     class Rating(BaseModel):
         score: int = Field(description="A rating from 1 to 5")
         reason: str = Field(description="One-sentence reason")
 
-    result = structured_call(
+    result = await structured_call(
         "You are a rating bot.",
         "Rate the color blue on a scale of 1-5.",
         response_model=Rating,

@@ -13,8 +13,8 @@ class LinkRelatedPayload(BaseModel):
     reasoning: str = Field("", description="Nature of the relation")
 
 
-def execute(payload: LinkRelatedPayload, call: Call, db: DB) -> MoveResult:
-    return link_pages(
+async def execute(payload: LinkRelatedPayload, call: Call, db: DB) -> MoveResult:
+    return await link_pages(
         payload.from_page_id,
         payload.to_page_id,
         payload.reasoning,

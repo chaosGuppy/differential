@@ -20,7 +20,7 @@ from differential.tracer import CallTrace
 log = logging.getLogger(__name__)
 
 
-def run_scout(
+async def run_scout(
     question_id: str,
     call: Call,
     db: DB,
@@ -33,7 +33,7 @@ def run_scout(
     log.info("Scout starting: call=%s, question=%s", call.id[:8], question_id[:8])
 
     preloaded = call.context_page_ids or []
-    context_text, _, working_page_ids = build_call_context(
+    context_text, _, working_page_ids = await build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
     trace.record(
@@ -49,11 +49,11 @@ def run_scout(
         f"Question ID (use this when linking considerations): `{question_id}`"
     )
 
-    db.update_call_status(call.id, CallStatus.RUNNING)
-    result = run_call(CallType.SCOUT, task, context_text, call, db)
+    await db.update_call_status(call.id, CallStatus.RUNNING)
+    result = await run_call(CallType.SCOUT, task, context_text, call, db)
     if result.phase1_page_ids:
         trace.record("phase1_loaded", {"page_ids": result.phase1_page_ids})
-    phase2_loaded = extract_loaded_page_ids(result, db)
+    phase2_loaded = await extract_loaded_page_ids(result, db)
     if phase2_loaded:
         trace.record("phase2_loaded", {"page_ids": phase2_loaded})
     trace.record(
@@ -64,7 +64,7 @@ def run_scout(
         dict.fromkeys(preloaded + result.phase1_page_ids + phase2_loaded)
     )
     review_context = format_moves_for_review(result.moves)
-    review = run_closing_review(call, review_context, context_text, all_loaded_ids, db)
+    review = await run_closing_review(call, review_context, context_text, all_loaded_ids, db)
     remaining_fruit = 5
     if review:
         remaining_fruit = review.get("remaining_fruit", 5)
@@ -72,7 +72,7 @@ def run_scout(
             "Scout review: remaining_fruit=%d, confidence=%s",
             remaining_fruit, review.get("confidence_in_output", "?"),
         )
-        log_page_ratings(review, db)
+        await log_page_ratings(review, db)
         trace.record(
             "review_complete",
             {
@@ -86,7 +86,7 @@ def run_scout(
         "Scout complete: call=%s, pages_created=%d, fruit=%d",
         call.id[:8], len(result.created_page_ids), remaining_fruit,
     )
-    complete_call(
+    await complete_call(
         call,
         db,
         f"Scout complete. Created {len(result.created_page_ids)} pages. Remaining fruit: {remaining_fruit}",
