@@ -83,6 +83,14 @@ uv run python main.py --map QUESTION_ID
 # Generate executive summary
 uv run python main.py --summary QUESTION_ID
 
+# Control how deep the summary traverses and where it switches to compact mode.
+# --max-depth N        How many levels of sub-questions to include (default: 4).
+# --summarize-after-depth N  Levels 0..N-1 show full claim/judgement content;
+#                            deeper levels show only one-line page summaries.
+#                            Default: max-depth // 2. Decrease to shrink context
+#                            when hitting LLM context-length errors.
+uv run python main.py --summary QUESTION_ID --max-depth 6 --summarize-after-depth 3
+
 # Generate execution trace visualization
 uv run python main.py --trace QUESTION_ID
 # Or trace a specific call:
@@ -91,8 +99,23 @@ uv run python main.py --trace CALL_ID
 # Batch mode: investigate multiple questions concurrently
 uv run python main.py --batch questions.json
 
+# Use a named workspace to isolate investigations
+uv run python main.py "Your question here" --workspace my-project --budget 10
+
+# List all workspaces
+uv run python main.py --list-workspaces
+
+# List questions in a specific workspace
+uv run python main.py --list --workspace my-project
+
 # Any command can target the production database
 uv run python main.py --prod-db --list
+
+# Enable info-level logging to stderr
+uv run python main.py "Your question" --budget 5 -v
+
+# Enable debug-level logging to stderr (very verbose)
+uv run python main.py "Your question" --budget 5 --debug
 ```
 
 ### Batch mode
