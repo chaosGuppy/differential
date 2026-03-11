@@ -38,6 +38,7 @@ uv run python main.py --trace QUESTION_ID
 Tests: `uv run pytest`. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
 
 **Database:** Runs against local Supabase by default (`supabase start`). Pass `--prod-db` to any command to target production. Production requires `SUPABASE_PROD_URL` and `SUPABASE_PROD_KEY` (service_role) in `.env`. Migrations live in `supabase/migrations/` and are pushed to prod with `supabase db push`.
+Always use the supabase cli to create new migrations: `supabase migration new`.
 
 ## Architecture
 
@@ -67,6 +68,10 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 **Tracing** (`src/differential/tracer.py`): `CallTrace` accumulates events during a call's lifecycle and persists them as JSONB in the `trace_json` column on `calls`. Each call type creates a `CallTrace` and records context, moves, and review events. The orchestrator records `dispatch_executed` events on prioritization traces. `generate_trace()` renders an interactive HTML visualization.
 
+**API** (`src/differential/api/`): FastAPI read-only API for the frontend. `schemas.py` defines Pydantic response models, `app.py` defines endpoints. Run with `uv run uvicorn differential.api.app:app --reload`.
+
+**Frontend** (`frontend/`): Next.js TypeScript app with Tailwind. Run with `cd frontend && npm run dev`. TypeScript types in `frontend/src/api/` are auto-generated from the API's OpenAPI schema — **never create or edit these files by hand**. When API schemas change, regenerate with `./scripts/generate-api-types.sh` (or `cd frontend && npm run generate-api`). This is the only mechanism for sharing types between backend and frontend; do not manually duplicate type definitions.
+
 **Outputs:**
 - `pages/research/` — markdown files per page
 - `pages/maps/` — HTML research maps
@@ -77,6 +82,7 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 - **NEVER pass `--prod-db` when running `main.py` unless the user explicitly asks you to.** The production database contains real research data. Default to the local database for all testing, development, and exploratory runs.
 - **Never run `supabase db reset`** — this wipes the database and is destructive. To apply pending migrations, use `supabase migration up` instead. If you find yourself wanting to reset the database, stop and ask the user first.
+- Always scope your test runs to a temp/scratch workspace, e.g. `uv run main.py "Is the sky blue?" --workspace skyblue-scratch`
 
 - Epistemic status is a 0-5 float (subjective confidence), always paired with an epistemic_type string
 - Consideration strength is 0-5 (relevance to question)

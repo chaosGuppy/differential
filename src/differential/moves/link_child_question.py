@@ -13,8 +13,8 @@ class LinkChildQuestionPayload(BaseModel):
     reasoning: str = Field("", description="Why this is a sub-question")
 
 
-def execute(payload: LinkChildQuestionPayload, call: Call, db: DB) -> MoveResult:
-    return link_pages(
+async def execute(payload: LinkChildQuestionPayload, call: Call, db: DB) -> MoveResult:
+    return await link_pages(
         payload.parent_id,
         payload.child_id,
         payload.reasoning,

@@ -16,13 +16,13 @@ class LoadPagePayload(BaseModel):
     page_id: str = Field(description="Short ID (first 8 chars) from the workspace map")
 
 
-def execute(payload: LoadPagePayload, call: Call, db: DB) -> MoveResult:
+async def execute(payload: LoadPagePayload, call: Call, db: DB) -> MoveResult:
     page_id = payload.page_id.strip()
-    full_id = db.resolve_page_id(page_id)
+    full_id = await db.resolve_page_id(page_id)
     if not full_id:
         log.debug("load_page: page '%s' not found", page_id)
         return MoveResult(f"Page '{page_id}' not found.")
-    page = db.get_page(full_id)
+    page = await db.get_page(full_id)
     if not page:
         log.debug("load_page: page '%s' resolved but not loadable", page_id)
         return MoveResult(f"Page '{page_id}' not found.")
@@ -30,7 +30,7 @@ def execute(payload: LoadPagePayload, call: Call, db: DB) -> MoveResult:
         "load_page: loaded %s (%s, %d chars)",
         full_id[:8], page.page_type.value, len(page.content),
     )
-    return MoveResult(format_page(page, db=db))
+    return MoveResult(await format_page(page, db=db))
 
 
 MOVE = MoveDef(

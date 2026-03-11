@@ -20,7 +20,7 @@ from differential.tracer import CallTrace
 log = logging.getLogger(__name__)
 
 
-def run_ingest(
+async def run_ingest(
     source_page: Page,
     question_id: str,
     call: Call,
@@ -39,7 +39,7 @@ def run_ingest(
     )
 
     preloaded = call.context_page_ids or []
-    question_context, _, working_page_ids = build_call_context(
+    question_context, _, working_page_ids = await build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
     trace.record(
@@ -65,11 +65,11 @@ def run_ingest(
         f"Source page ID: `{source_page.id}`"
     )
 
-    db.update_call_status(call.id, CallStatus.RUNNING)
-    result = run_call(CallType.INGEST, task, context_text, call, db)
+    await db.update_call_status(call.id, CallStatus.RUNNING)
+    result = await run_call(CallType.INGEST, task, context_text, call, db)
     if result.phase1_page_ids:
         trace.record("phase1_loaded", {"page_ids": result.phase1_page_ids})
-    phase2_loaded = extract_loaded_page_ids(result, db)
+    phase2_loaded = await extract_loaded_page_ids(result, db)
     if phase2_loaded:
         trace.record("phase2_loaded", {"page_ids": phase2_loaded})
     trace.record(
@@ -80,14 +80,14 @@ def run_ingest(
         dict.fromkeys(preloaded + result.phase1_page_ids + phase2_loaded)
     )
     review_context = format_moves_for_review(result.moves)
-    review = run_closing_review(call, review_context, context_text, all_loaded_ids, db)
+    review = await run_closing_review(call, review_context, context_text, all_loaded_ids, db)
     if review:
         log.info(
             "Ingest review: confidence=%s, remaining_fruit=%s",
             review.get("confidence_in_output", "?"),
             review.get("remaining_fruit", "?"),
         )
-        log_page_ratings(review, db)
+        await log_page_ratings(review, db)
         trace.record(
             "review_complete",
             {
@@ -101,7 +101,7 @@ def run_ingest(
         "Ingest complete: call=%s, pages_created=%d, source=%s",
         call.id[:8], len(result.created_page_ids), filename,
     )
-    complete_call(
+    await complete_call(
         call,
         db,
         f"Ingest complete. Created {len(result.created_page_ids)} pages from '{filename}'.",

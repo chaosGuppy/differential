@@ -36,11 +36,11 @@ class CallTrace:
             entry["data"] = data
         self.events.append(entry)
 
-    def save(self) -> None:
+    async def save(self) -> None:
         if not self._enabled:
             return
         if self.events:
-            self.db.save_call_trace(self.call_id, self.events)
+            await self.db.save_call_trace(self.call_id, self.events)
             self.events = []
 
 
@@ -55,10 +55,10 @@ def _short(s: str) -> str:
     return s[:8] if _looks_like_uuid(s) else s
 
 
-def _render_page_chip(page_id: str, db: DB) -> str:
+async def _render_page_chip(page_id: str, db: DB) -> str:
     """Render a page ID as a clickable chip with summary and expandable content."""
     short = _short(page_id)
-    page = db.get_page(page_id) if _looks_like_uuid(page_id) else None
+    page = await db.get_page(page_id) if _looks_like_uuid(page_id) else None
     if not page:
         return f'<span class="page-chip">[{escape(short)}]</span>'
     summary = escape(page.summary)
@@ -80,11 +80,11 @@ def _render_page_chip(page_id: str, db: DB) -> str:
     )
 
 
-def _render_page_list(page_ids: list, db: DB) -> str:
+async def _render_page_list(page_ids: list, db: DB) -> str:
     """Render a list of page IDs as chips."""
     if not page_ids:
         return '<span class="empty">none</span>'
-    parts = [_render_page_chip(pid, db) for pid in page_ids]
+    parts = [await _render_page_chip(pid, db) for pid in page_ids]
     return '<div class="page-list">' + "".join(parts) + "</div>"
 
 
@@ -105,7 +105,7 @@ _MOVE_LABELS = {
 }
 
 
-def _render_move(move_data: dict, db: DB) -> str:
+async def _render_move(move_data: dict, db: DB) -> str:
     """Render a single move with its payload details."""
     move_type = move_data.get("type", "?")
     label_class, _ = _MOVE_LABELS.get(move_type, ("unknown", "?"))
@@ -133,7 +133,7 @@ def _render_move(move_data: dict, db: DB) -> str:
             and isinstance(v, str)
             and v
         ):
-            page = db.get_page(v) if _looks_like_uuid(v) else None
+            page = await db.get_page(v) if _looks_like_uuid(v) else None
             if page:
                 sv = f'[{_short(v)}] "{page.summary}"'
             else:
@@ -157,7 +157,7 @@ def _render_move(move_data: dict, db: DB) -> str:
         f"<details>"
         f"<summary>"
         f'<span class="move-badge {label_class}">{escape(move_type)}</span>'
-        f'<span class="move-summary">{escape(_move_one_liner(move_data, db))}</span>'
+        f'<span class="move-summary">{escape(await _move_one_liner(move_data, db))}</span>'
         f"</summary>"
         f"{fields_html}"
         f"</details>"
@@ -165,7 +165,7 @@ def _render_move(move_data: dict, db: DB) -> str:
     )
 
 
-def _move_one_liner(move_data: dict, db: DB | None = None) -> str:
+async def _move_one_liner(move_data: dict, db: DB | None = None) -> str:
     """Generate a short one-line summary for a move."""
     summary = move_data.get("summary", "")
     if summary:
@@ -178,7 +178,7 @@ def _move_one_liner(move_data: dict, db: DB | None = None) -> str:
     if "page_id" in move_data:
         pid = move_data["page_id"]
         if db:
-            page = db.get_page(pid) if _looks_like_uuid(pid) else None
+            page = await db.get_page(pid) if _looks_like_uuid(pid) else None
             if page:
                 return f"[{_short(pid)}] {page.summary}"
         return f"[{_short(pid)}]"
@@ -187,7 +187,7 @@ def _move_one_liner(move_data: dict, db: DB | None = None) -> str:
     return ""
 
 
-def _render_event_context_built(ev: dict, db: DB) -> str:
+async def _render_event_context_built(ev: dict, db: DB) -> str:
     data = ev.get("data", {})
     working = data.get("working_context_page_ids", [])
     preloaded = data.get("preloaded_page_ids", [])
@@ -196,31 +196,31 @@ def _render_event_context_built(ev: dict, db: DB) -> str:
 
     html = '<div class="ev-section">'
     html += '<span class="ev-label">Working context:</span>'
-    html += _render_page_list(working, db)
+    html += await _render_page_list(working, db)
     if preloaded:
         html += '<span class="ev-label">Pre-loaded (from dispatch):</span>'
-        html += _render_page_list(preloaded, db)
+        html += await _render_page_list(preloaded, db)
     if source:
         html += '<span class="ev-label">Source:</span>'
-        html += _render_page_chip(source, db)
+        html += await _render_page_chip(source, db)
     if budget is not None:
         html += f'<span class="ev-label">Budget: {budget}</span>'
     html += "</div>"
     return html
 
 
-def _render_event_pages_loaded(ev: dict, db: DB) -> str:
+async def _render_event_pages_loaded(ev: dict, db: DB) -> str:
     data = ev.get("data", {})
     page_ids = data.get("page_ids", [])
     if not page_ids:
         return '<div class="ev-section"><span class="ev-label">No pages loaded</span></div>'
     html = '<div class="ev-section">'
-    html += _render_page_list(page_ids, db)
+    html += await _render_page_list(page_ids, db)
     html += "</div>"
     return html
 
 
-def _render_event_moves(ev: dict, db: DB) -> str:
+async def _render_event_moves(ev: dict, db: DB) -> str:
     data = ev.get("data", {})
     moves = data.get("moves", [])
     created = data.get("created_page_ids", [])
@@ -235,16 +235,16 @@ def _render_event_moves(ev: dict, db: DB) -> str:
     )
     html += '<div class="moves-list">'
     for m in moves:
-        html += _render_move(m, db)
+        html += await _render_move(m, db)
     html += "</div>"
     if created:
         html += '<span class="ev-label">Created pages:</span>'
-        html += _render_page_list(created, db)
+        html += await _render_page_list(created, db)
     html += "</div>"
     return html
 
 
-def _render_event_dispatches(ev: dict, db: DB) -> str:  # noqa: ARG001
+async def _render_event_dispatches(ev: dict, db: DB) -> str:  # noqa: ARG001
     data = ev.get("data", {})
     dispatches = data.get("dispatches", [])
     if not dispatches:
@@ -272,7 +272,7 @@ def _render_event_dispatches(ev: dict, db: DB) -> str:  # noqa: ARG001
     return html
 
 
-def _render_event_review(ev: dict, db: DB) -> str:  # noqa: ARG001
+async def _render_event_review(ev: dict, db: DB) -> str:  # noqa: ARG001
     data = ev.get("data", {})
     fruit = data.get("remaining_fruit", "")
     conf = data.get("confidence", "")
@@ -306,7 +306,7 @@ _EVENT_RENDERERS = {
 }
 
 
-def _render_event(ev: dict, db: DB) -> str:
+async def _render_event(ev: dict, db: DB) -> str:
     name = ev.get("event", "")
     ts = ev.get("ts", "")
     if ts:
@@ -318,7 +318,7 @@ def _render_event(ev: dict, db: DB) -> str:
 
     renderer = _EVENT_RENDERERS.get(name)
     if renderer:
-        body_html = renderer(ev, db)
+        body_html = await renderer(ev, db)
     else:
         body_html = _render_event_generic(ev)
 
@@ -353,15 +353,15 @@ def _extract_scout_mode(trace_events: list[dict]) -> str:
     return ""
 
 
-def _render_call_node(call: Call, db: DB, depth: int = 0) -> str:
-    trace_events = db.get_call_trace(call.id)
-    children = db.get_child_calls(call.id)
+async def _render_call_node(call: Call, db: DB, depth: int = 0) -> str:
+    trace_events = await db.get_call_trace(call.id)
+    children = await db.get_child_calls(call.id)
     color = _call_color(call.call_type)
     short_id = call.id[:8]
 
     scope_label = ""
     if call.scope_page_id:
-        scope_label = db.page_label(call.scope_page_id)
+        scope_label = await db.page_label(call.scope_page_id)
 
     scout_mode = ""
     if call.call_type == CallType.SCOUT:
@@ -424,7 +424,7 @@ def _render_call_node(call: Call, db: DB, depth: int = 0) -> str:
     if displayable:
         events_html = '<div class="events">'
         for ev in displayable:
-            events_html += _render_event(ev, db)
+            events_html += await _render_event(ev, db)
         events_html += "</div>"
 
     # Review from call record
@@ -446,7 +446,7 @@ def _render_call_node(call: Call, db: DB, depth: int = 0) -> str:
     if children:
         children_html = '<div class="children">'
         for child in children:
-            children_html += _render_call_node(child, db, depth=depth + 1)
+            children_html += await _render_call_node(child, db, depth=depth + 1)
         children_html += "</div>"
 
     mode_html = ""
@@ -627,27 +627,27 @@ details[open] > summary { margin-bottom: 0.4rem; }
 """
 
 
-def generate_trace(question_id_or_call_id: str, db: DB) -> Path:
+async def generate_trace(question_id_or_call_id: str, db: DB) -> Path:
     """Generate an HTML trace visualization. Returns the file path."""
     TRACES_DIR.mkdir(parents=True, exist_ok=True)
 
-    page = db.get_page(question_id_or_call_id)
+    page = await db.get_page(question_id_or_call_id)
     if page:
         question_label = page.summary[:60]
-        root_calls = db.get_root_calls_for_question(question_id_or_call_id)
+        root_calls = await db.get_root_calls_for_question(question_id_or_call_id)
         if not root_calls:
             raise ValueError(f"No calls found for question {question_id_or_call_id}")
         body_html = ""
         for rc in root_calls:
-            body_html += _render_call_node(rc, db, depth=0)
+            body_html += await _render_call_node(rc, db, depth=0)
     else:
-        call = db.get_call(question_id_or_call_id)
+        call = await db.get_call(question_id_or_call_id)
         if not call:
             raise ValueError(
                 f"No question or call found for ID: {question_id_or_call_id}"
             )
         question_label = f"Call {call.id[:8]} ({call.call_type.value})"
-        body_html = _render_call_node(call, db, depth=0)
+        body_html = await _render_call_node(call, db, depth=0)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     slug = "".join(c if c.isalnum() or c in " -" else "" for c in question_label[:50])

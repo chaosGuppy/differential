@@ -5,8 +5,6 @@ Returns a map text and a short_id → full_uuid lookup dict.
 Short IDs are the first 8 characters of each page UUID.
 """
 
-from typing import Optional
-
 from differential.database import DB
 from differential.models import ConsiderationDirection, Page, PageType
 
@@ -15,7 +13,7 @@ def _short_id(full_uuid: str) -> str:
     return full_uuid[:8]
 
 
-def _direction_icon(direction: Optional[ConsiderationDirection]) -> str:
+def _direction_icon(direction: ConsiderationDirection | None) -> str:
     if direction == ConsiderationDirection.SUPPORTS:
         return "↑"
     elif direction == ConsiderationDirection.OPPOSES:
@@ -24,20 +22,20 @@ def _direction_icon(direction: Optional[ConsiderationDirection]) -> str:
         return "→"
 
 
-def _build_question_lines(
+async def _build_question_lines(
     question: Page,
     db: DB,
     short_id_map: dict[str, str],
     indent: int = 0,
-    collapse_depth: Optional[int] = None,
+    collapse_depth: int | None = None,
 ) -> list[str]:
     prefix = "  " * indent
     sid = _short_id(question.id)
     short_id_map[sid] = question.id
 
-    considerations = db.get_considerations_for_question(question.id)
-    judgements = db.get_judgements_for_question(question.id)
-    children = db.get_child_questions(question.id)
+    considerations = await db.get_considerations_for_question(question.id)
+    judgements = await db.get_judgements_for_question(question.id)
+    children = await db.get_child_questions(question.id)
 
     n_cons = len(considerations)
     n_j = len(judgements)
@@ -74,15 +72,17 @@ def _build_question_lines(
     # Sub-questions (recursive)
     for child in children:
         lines.extend(
-            _build_question_lines(child, db, short_id_map, indent + 1, collapse_depth)
+            await _build_question_lines(
+                child, db, short_id_map, indent + 1, collapse_depth
+            )
         )
 
     return lines
 
 
-def build_workspace_map(
+async def build_workspace_map(
     db: DB,
-    collapse_depth: Optional[int] = None,
+    collapse_depth: int | None = None,
 ) -> tuple[str, dict[str, str]]:
     """Compact LLM-readable map of the entire workspace.
 
@@ -97,19 +97,19 @@ def build_workspace_map(
         "",
     ]
 
-    root_questions = db.get_root_questions()
+    root_questions = await db.get_root_questions()
     if root_questions:
         parts.append("### Questions")
         parts.append("")
         for q in root_questions:
-            lines = _build_question_lines(
+            lines = await _build_question_lines(
                 q, db, short_id_map, indent=0, collapse_depth=collapse_depth
             )
             parts.extend(lines)
             parts.append("")
 
     # Sources section — all source pages regardless of workspace
-    source_pages = db.get_pages(page_type=PageType.SOURCE)
+    source_pages = await db.get_pages(page_type=PageType.SOURCE)
     if source_pages:
         parts.append("### Sources")
         parts.append("")

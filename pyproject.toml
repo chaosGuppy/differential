@@ -30,5 +30,9 @@ dev = [
     "ruff>=0.15.5",
     "pytest>=8.0",
     "pytest-mock>=3.15.1",
+    "pytest-asyncio>=0.25.0",
     "pyright>=1.1.408",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

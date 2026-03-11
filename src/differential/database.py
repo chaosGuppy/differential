@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from postgrest.types import CountMethod
-from supabase import create_client, Client
-from supabase.lib.client_options import SyncClientOptions
+from supabase import acreate_client, AsyncClient
+from supabase.lib.client_options import AsyncClientOptions
 
 from differential.models import (
     Call,
@@ -47,14 +47,13 @@ _DEFAULT_KEY = (
 )
 
 
-def _make_client(prod: bool = False) -> Client:
+def _get_credentials(prod: bool = False) -> tuple[str, str]:
     if prod:
-        url = os.environ["SUPABASE_PROD_URL"]
-        key = os.environ["SUPABASE_PROD_KEY"]
-    else:
-        url = os.environ.get("SUPABASE_URL", _DEFAULT_URL)
-        key = os.environ.get("SUPABASE_KEY", _DEFAULT_KEY)
-    return create_client(url, key, options=SyncClientOptions(schema="public"))
+        return os.environ["SUPABASE_PROD_URL"], os.environ["SUPABASE_PROD_KEY"]
+    return (
+        os.environ.get("SUPABASE_URL", _DEFAULT_URL),
+        os.environ.get("SUPABASE_KEY", _DEFAULT_KEY),
+    )
 
 
 def _row_to_page(row: dict[str, Any]) -> Page:
@@ -118,17 +117,31 @@ class DB:
     def __init__(
         self,
         run_id: str,
-        client: Client | None = None,
-        prod: bool = False,
+        client: AsyncClient,
         project_id: str = "",
     ):
         self.run_id = run_id
-        self.client = client or _make_client(prod=prod)
+        self.client = client
         self.project_id = project_id
 
-    def get_or_create_project(self, name: str) -> Project:
+    @classmethod
+    async def create(
+        cls,
+        run_id: str,
+        prod: bool = False,
+        project_id: str = "",
+        client: AsyncClient | None = None,
+    ) -> "DB":
+        if client is None:
+            url, key = _get_credentials(prod)
+            client = await acreate_client(
+                url, key, options=AsyncClientOptions(schema="public")
+            )
+        return cls(run_id=run_id, client=client, project_id=project_id)
+
+    async def get_or_create_project(self, name: str) -> Project:
         rows = _rows(
-            self.client.table("projects").select("*").eq("name", name).execute()
+            await self.client.table("projects").select("*").eq("name", name).execute()
         )
         if rows:
             row = rows[0]
@@ -138,7 +151,7 @@ class DB:
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
         row = _rows(
-            self.client.table("projects")
+            await self.client.table("projects")
             .insert({"name": name})
             .execute()
         )[0]
@@ -148,9 +161,9 @@ class DB:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
-    def list_projects(self) -> list[Project]:
+    async def list_projects(self) -> list[Project]:
         rows = _rows(
-            self.client.table("projects")
+            await self.client.table("projects")
             .select("*")
             .order("created_at")
             .execute()
@@ -166,14 +179,14 @@ class DB:
 
     # --- Pages ---
 
-    def save_page(self, page: Page) -> None:
+    async def save_page(self, page: Page) -> None:
         log.debug(
             "save_page: id=%s, type=%s, summary=%s",
             page.id[:8], page.page_type.value, page.summary[:60],
         )
         if not page.project_id:
             page.project_id = self.project_id
-        self.client.table("pages").upsert(
+        await self.client.table("pages").upsert(
             {
                 "id": page.id,
                 "page_type": page.page_type.value,
@@ -195,11 +208,13 @@ class DB:
             }
         ).execute()
 
-    def get_page(self, page_id: str) -> Page | None:
-        rows = _rows(self.client.table("pages").select("*").eq("id", page_id).execute())
+    async def get_page(self, page_id: str) -> Page | None:
+        rows = _rows(
+            await self.client.table("pages").select("*").eq("id", page_id).execute()
+        )
         return _row_to_page(rows[0]) if rows else None
 
-    def resolve_page_id(self, page_id: str) -> str | None:
+    async def resolve_page_id(self, page_id: str) -> str | None:
         """Resolve a page ID to a full UUID. Handles both full UUIDs and
         8-char short IDs. Returns the full UUID if found, or None."""
         if not page_id:
@@ -207,7 +222,7 @@ class DB:
             return None
         # Try exact match first
         rows = _rows(
-            self.client.table("pages").select("id").eq("id", page_id).execute()
+            await self.client.table("pages").select("id").eq("id", page_id).execute()
         )
         if rows:
             log.debug("resolve_page_id: exact match for %s", page_id[:8])
@@ -215,7 +230,7 @@ class DB:
         # Try prefix match for short IDs
         if len(page_id) <= 8:
             rows = _rows(
-                self.client.table("pages")
+                await self.client.table("pages")
                 .select("id")
                 .like("id", f"{page_id}%")
                 .execute()
@@ -236,14 +251,14 @@ class DB:
         log.debug("resolve_page_id: no match for %s", page_id[:8])
         return None
 
-    def page_label(self, page_id: str) -> str:
+    async def page_label(self, page_id: str) -> str:
         """Return a human-readable label like '"Summary text" [short_id]'."""
-        page = self.get_page(page_id)
+        page = await self.get_page(page_id)
         if page:
             return f'"{page.summary[:60]}" [{page_id[:8]}]'
         return f"[{page_id[:8]}]"
 
-    def get_pages(
+    async def get_pages(
         self,
         workspace: Workspace | None = None,
         page_type: PageType | None = None,
@@ -260,11 +275,11 @@ class DB:
             query = query.eq("is_superseded", False)
         return [
             _row_to_page(r)
-            for r in _rows(query.order("created_at", desc=True).execute())
+            for r in _rows(await query.order("created_at", desc=True).execute())
         ]
 
-    def supersede_page(self, old_id: str, new_id: str) -> None:
-        self.client.table("pages").update(
+    async def supersede_page(self, old_id: str, new_id: str) -> None:
+        await self.client.table("pages").update(
             {
                 "is_superseded": True,
                 "superseded_by": new_id,
@@ -273,12 +288,12 @@ class DB:
 
     # --- Links ---
 
-    def save_link(self, link: PageLink) -> None:
+    async def save_link(self, link: PageLink) -> None:
         log.debug(
             "save_link: %s -> %s, type=%s",
             link.from_page_id[:8], link.to_page_id[:8], link.link_type.value,
         )
-        self.client.table("page_links").upsert(
+        await self.client.table("page_links").upsert(
             {
                 "id": link.id,
                 "from_page_id": link.from_page_id,
@@ -292,64 +307,64 @@ class DB:
             }
         ).execute()
 
-    def get_links_to(self, page_id: str) -> list[PageLink]:
+    async def get_links_to(self, page_id: str) -> list[PageLink]:
         rows = _rows(
-            self.client.table("page_links")
+            await self.client.table("page_links")
             .select("*")
             .eq("to_page_id", page_id)
             .execute()
         )
         return [_row_to_link(r) for r in rows]
 
-    def get_links_from(self, page_id: str) -> list[PageLink]:
+    async def get_links_from(self, page_id: str) -> list[PageLink]:
         rows = _rows(
-            self.client.table("page_links")
+            await self.client.table("page_links")
             .select("*")
             .eq("from_page_id", page_id)
             .execute()
         )
         return [_row_to_link(r) for r in rows]
 
-    def get_considerations_for_question(
+    async def get_considerations_for_question(
         self,
         question_id: str,
     ) -> list[tuple[Page, PageLink]]:
         """Return (claim_page, link) pairs for all considerations on a question."""
-        links = self.get_links_to(question_id)
+        links = await self.get_links_to(question_id)
         consideration_links = [
             l for l in links if l.link_type == LinkType.CONSIDERATION
         ]
         result = []
         for link in consideration_links:
-            page = self.get_page(link.from_page_id)
+            page = await self.get_page(link.from_page_id)
             if page and page.is_active():
                 result.append((page, link))
         return result
 
-    def get_child_questions(self, parent_id: str) -> list[Page]:
+    async def get_child_questions(self, parent_id: str) -> list[Page]:
         """Return sub-questions of a question."""
-        links = self.get_links_from(parent_id)
+        links = await self.get_links_from(parent_id)
         child_links = [l for l in links if l.link_type == LinkType.CHILD_QUESTION]
         result = []
         for link in child_links:
-            page = self.get_page(link.to_page_id)
+            page = await self.get_page(link.to_page_id)
             if page and page.is_active():
                 result.append(page)
         return result
 
-    def get_judgements_for_question(self, question_id: str) -> list[Page]:
-        links = self.get_links_to(question_id)
+    async def get_judgements_for_question(self, question_id: str) -> list[Page]:
+        links = await self.get_links_to(question_id)
         judgement_links = [l for l in links if l.link_type == LinkType.RELATED]
         result = []
         for link in judgement_links:
-            page = self.get_page(link.from_page_id)
+            page = await self.get_page(link.from_page_id)
             if page and page.is_active() and page.page_type == PageType.JUDGEMENT:
                 result.append(page)
         return result
 
     # --- Calls ---
 
-    def create_call(
+    async def create_call(
         self,
         call_type: CallType,
         scope_page_id: str | None = None,
@@ -374,13 +389,13 @@ class DB:
             status=CallStatus.PENDING,
             context_page_ids=context_page_ids or [],
         )
-        self.save_call(call)
+        await self.save_call(call)
         return call
 
-    def save_call(self, call: Call) -> None:
+    async def save_call(self, call: Call) -> None:
         if not call.project_id:
             call.project_id = self.project_id
-        self.client.table("calls").upsert(
+        await self.client.table("calls").upsert(
             {
                 "id": call.id,
                 "call_type": call.call_type.value,
@@ -402,11 +417,13 @@ class DB:
             }
         ).execute()
 
-    def get_call(self, call_id: str) -> Call | None:
-        rows = _rows(self.client.table("calls").select("*").eq("id", call_id).execute())
+    async def get_call(self, call_id: str) -> Call | None:
+        rows = _rows(
+            await self.client.table("calls").select("*").eq("id", call_id).execute()
+        )
         return _row_to_call(rows[0]) if rows else None
 
-    def update_call_status(
+    async def update_call_status(
         self,
         call_id: str,
         status: CallStatus,
@@ -417,7 +434,7 @@ class DB:
             if status == CallStatus.COMPLETE
             else None
         )
-        self.client.table("calls").update(
+        await self.client.table("calls").update(
             {
                 "status": status.value,
                 "result_summary": result_summary,
@@ -425,20 +442,20 @@ class DB:
             }
         ).eq("id", call_id).execute()
 
-    def increment_call_budget_used(
+    async def increment_call_budget_used(
         self,
         call_id: str,
         amount: int = 1,
     ) -> None:
-        self.client.rpc(
+        await self.client.rpc(
             "increment_call_budget_used",
             {"call_id": call_id, "amount": amount},
         ).execute()
 
     # --- Per-run budget ---
 
-    def init_budget(self, total: int) -> None:
-        self.client.table("budget").upsert(
+    async def init_budget(self, total: int) -> None:
+        await self.client.table("budget").upsert(
             {
                 "run_id": self.run_id,
                 "total": total,
@@ -446,10 +463,10 @@ class DB:
             }
         ).execute()
 
-    def get_budget(self) -> tuple[int, int]:
+    async def get_budget(self) -> tuple[int, int]:
         """Returns (total, used)."""
         rows = _rows(
-            self.client.table("budget")
+            await self.client.table("budget")
             .select("total, used")
             .eq("run_id", self.run_id)
             .execute()
@@ -458,9 +475,9 @@ class DB:
             return rows[0]["total"], rows[0]["used"]
         return 0, 0
 
-    def consume_budget(self, amount: int = 1) -> bool:
+    async def consume_budget(self, amount: int = 1) -> bool:
         """Deduct from global budget. Returns False if insufficient budget."""
-        result = self.client.rpc(
+        result = await self.client.rpc(
             "consume_budget",
             {"rid": self.run_id, "amount": amount},
         ).execute()
@@ -468,25 +485,25 @@ class DB:
         log.debug("consume_budget: amount=%d, success=%s", amount, ok)
         return ok
 
-    def add_budget(self, amount: int) -> None:
+    async def add_budget(self, amount: int) -> None:
         """Add more calls to the existing budget (for continue runs)."""
-        self.client.rpc(
+        await self.client.rpc(
             "add_budget",
             {"rid": self.run_id, "amount": amount},
         ).execute()
 
-    def budget_remaining(self) -> int:
-        total, used = self.get_budget()
+    async def budget_remaining(self) -> int:
+        total, used = await self.get_budget()
         return max(0, total - used)
 
-    def get_last_scout_info(
+    async def get_last_scout_info(
         self,
         question_id: str,
     ) -> tuple[str, int | None] | None:
         """Return (completed_at_iso, remaining_fruit) for the most recent
         scout call on this question, or None if never scouted."""
         rows = _rows(
-            self.client.table("calls")
+            await self.client.table("calls")
             .select("completed_at, review_json")
             .eq("call_type", CallType.SCOUT.value)
             .eq("scope_page_id", question_id)
@@ -502,13 +519,13 @@ class DB:
         fruit = review.get("remaining_fruit") if isinstance(review, dict) else None
         return row["completed_at"], fruit
 
-    def get_ingest_history(self) -> dict[str, list[str]]:
+    async def get_ingest_history(self) -> dict[str, list[str]]:
         """Return {source_id: [question_id, ...]} based on considerations
         created by ingest calls."""
         params: dict[str, Any] = {}
         if self.project_id:
             params["pid"] = self.project_id
-        rows = _rows(self.client.rpc("get_ingest_history", params).execute())
+        rows = _rows(await self.client.rpc("get_ingest_history", params).execute())
         out: dict[str, list[str]] = {}
         for row in rows:
             out.setdefault(row["source_id"], []).append(row["question_id"])
@@ -516,26 +533,29 @@ class DB:
 
     # --- Traces ---
 
-    def save_call_trace(self, call_id: str, events: list[dict]) -> None:
+    async def save_call_trace(self, call_id: str, events: list[dict]) -> None:
         """Append trace events to the call's trace_json column."""
-        self.client.rpc(
+        await self.client.rpc(
             "append_call_trace",
             {"cid": call_id, "new_events": events},
         ).execute()
 
-    def get_call_trace(self, call_id: str) -> list[dict]:
+    async def get_call_trace(self, call_id: str) -> list[dict]:
         """Fetch trace events for a call."""
         rows = _rows(
-            self.client.table("calls").select("trace_json").eq("id", call_id).execute()
+            await self.client.table("calls")
+            .select("trace_json")
+            .eq("id", call_id)
+            .execute()
         )
         if rows and rows[0].get("trace_json"):
             return rows[0]["trace_json"]
         return []
 
-    def get_child_calls(self, parent_call_id: str) -> list[Call]:
+    async def get_child_calls(self, parent_call_id: str) -> list[Call]:
         """Fetch direct child calls ordered by created_at."""
         rows = _rows(
-            self.client.table("calls")
+            await self.client.table("calls")
             .select("*")
             .eq("parent_call_id", parent_call_id)
             .order("created_at")
@@ -543,11 +563,11 @@ class DB:
         )
         return [_row_to_call(r) for r in rows]
 
-    def get_root_calls_for_question(self, question_id: str) -> list[Call]:
+    async def get_root_calls_for_question(self, question_id: str) -> list[Call]:
         """Find top-level calls for a question (prioritization calls with no
         parent, or whose parent targets a different question)."""
         rows = _rows(
-            self.client.table("calls")
+            await self.client.table("calls")
             .select("*")
             .eq("scope_page_id", question_id)
             .is_("parent_call_id", "null")
@@ -559,7 +579,7 @@ class DB:
             return result
         # Fallback: return all calls scoped to this question
         rows = _rows(
-            self.client.table("calls")
+            await self.client.table("calls")
             .select("*")
             .eq("scope_page_id", question_id)
             .order("created_at")
@@ -567,14 +587,14 @@ class DB:
         )
         return [_row_to_call(r) for r in rows]
 
-    def save_page_rating(
+    async def save_page_rating(
         self,
         page_id: str,
         call_id: str,
         score: int,
         note: str = "",
     ) -> None:
-        self.client.table("page_ratings").insert(
+        await self.client.table("page_ratings").insert(
             {
                 "id": str(uuid.uuid4()),
                 "page_id": page_id,
@@ -586,7 +606,7 @@ class DB:
             }
         ).execute()
 
-    def save_page_flag(
+    async def save_page_flag(
         self,
         flag_type: str,
         call_id: str | None = None,
@@ -595,7 +615,7 @@ class DB:
         page_id_a: str | None = None,
         page_id_b: str | None = None,
     ) -> None:
-        self.client.table("page_flags").insert(
+        await self.client.table("page_flags").insert(
             {
                 "id": str(uuid.uuid4()),
                 "flag_type": flag_type,
@@ -609,7 +629,7 @@ class DB:
             }
         ).execute()
 
-    def get_root_questions(
+    async def get_root_questions(
         self,
         workspace: Workspace = Workspace.RESEARCH,
     ) -> list[Page]:
@@ -618,20 +638,20 @@ class DB:
         if self.project_id:
             params["pid"] = self.project_id
         rows = _rows(
-            self.client.rpc("get_root_questions", params).execute()
+            await self.client.rpc("get_root_questions", params).execute()
         )
         return [_row_to_page(r) for r in rows]
 
-    def count_pages_for_question(self, question_id: str) -> dict:
+    async def count_pages_for_question(self, question_id: str) -> dict:
         """Count pages linked to or created in context of a question."""
-        cons_result = (
+        cons_result = await (
             self.client.table("page_links")
             .select("id", count=CountMethod.exact)
             .eq("to_page_id", question_id)
             .eq("link_type", "consideration")
             .execute()
         )
-        judgements_result = self.client.rpc(
+        judgements_result = await self.client.rpc(
             "count_active_judgements",
             {"qid": question_id},
         ).execute()
@@ -640,12 +660,12 @@ class DB:
             "judgements": cast(int, judgements_result.data or 0),
         }
 
-    def delete_run_data(self, delete_project: bool = False) -> None:
+    async def delete_run_data(self, delete_project: bool = False) -> None:
         """Delete all data for this run_id. Used by test teardown."""
         for table in ["page_flags", "page_ratings", "page_links", "calls", "pages"]:
-            self.client.table(table).delete().eq("run_id", self.run_id).execute()
-        self.client.table("budget").delete().eq("run_id", self.run_id).execute()
+            await self.client.table(table).delete().eq("run_id", self.run_id).execute()
+        await self.client.table("budget").delete().eq("run_id", self.run_id).execute()
         if delete_project and self.project_id:
-            self.client.table("projects").delete().eq(
+            await self.client.table("projects").delete().eq(
                 "id", self.project_id
             ).execute()

@@ -5,8 +5,8 @@ from differential.models import Call, MoveType, PageLayer, PageType
 from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, create_page
 
 
-def execute(payload: CreatePagePayload, call: Call, db: DB) -> MoveResult:
-    return create_page(payload, call, db, PageType.CONCEPT, PageLayer.SQUIDGY)
+async def execute(payload: CreatePagePayload, call: Call, db: DB) -> MoveResult:
+    return await create_page(payload, call, db, PageType.CONCEPT, PageLayer.SQUIDGY)
 
 
 MOVE = MoveDef(
