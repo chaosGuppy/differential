@@ -4,19 +4,20 @@ import logging
 
 from pydantic import BaseModel, Field
 
+from differential.database import DB
 from differential.models import (
+    Call,
     ConsiderationDirection,
     LinkType,
     MoveType,
     PageLink,
 )
-from differential.moves.base import MoveDef, MoveResult, MoveState
+from differential.moves.base import MoveDef, MoveResult
 
 log = logging.getLogger(__name__)
 
 
-class LinkConsiderationPayload(BaseModel):
-    claim_id: str = Field(description="Page ID of the claim (or LAST_CREATED)")
+class ConsiderationLinkFields(BaseModel):
     question_id: str = Field(description="Page ID of the question")
     direction: str = Field("neutral", description="supports, opposes, or neutral")
     strength: float = Field(
@@ -28,8 +29,11 @@ class LinkConsiderationPayload(BaseModel):
     )
 
 
-async def execute(payload: LinkConsiderationPayload, state: MoveState) -> MoveResult:
-    db = state.db
+class LinkConsiderationPayload(ConsiderationLinkFields):
+    claim_id: str = Field(description="Page ID of the claim (or LAST_CREATED)")
+
+
+async def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> MoveResult:
     claim_id = await db.resolve_page_id(payload.claim_id)
     question_id = await db.resolve_page_id(payload.question_id)
     if not claim_id or not question_id:

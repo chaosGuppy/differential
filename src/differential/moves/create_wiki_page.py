@@ -1,11 +1,12 @@
 """CREATE_WIKI_PAGE move: create a maintained summary page."""
 
-from differential.models import MoveType, PageLayer, PageType
-from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, MoveState, create_page
+from differential.database import DB
+from differential.models import Call, MoveType, PageLayer, PageType
+from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, create_page
 
 
-async def execute(payload: CreatePagePayload, state: MoveState) -> MoveResult:
-    return await create_page(payload, state, PageType.WIKI, PageLayer.WIKI)
+async def execute(payload: CreatePagePayload, call: Call, db: DB) -> MoveResult:
+    return await create_page(payload, call, db, PageType.WIKI, PageLayer.WIKI)
 
 
 MOVE = MoveDef(

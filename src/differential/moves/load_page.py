@@ -5,8 +5,9 @@ import logging
 from pydantic import BaseModel, Field
 
 from differential.context import format_page
-from differential.models import MoveType
-from differential.moves.base import MoveDef, MoveResult, MoveState
+from differential.database import DB
+from differential.models import Call, MoveType
+from differential.moves.base import MoveDef, MoveResult
 
 log = logging.getLogger(__name__)
 
@@ -15,8 +16,7 @@ class LoadPagePayload(BaseModel):
     page_id: str = Field(description="Short ID (first 8 chars) from the workspace map")
 
 
-async def execute(payload: LoadPagePayload, state: MoveState) -> MoveResult:
-    db = state.db
+async def execute(payload: LoadPagePayload, call: Call, db: DB) -> MoveResult:
     page_id = payload.page_id.strip()
     full_id = await db.resolve_page_id(page_id)
     if not full_id:

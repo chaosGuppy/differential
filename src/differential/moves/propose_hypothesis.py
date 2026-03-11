@@ -4,7 +4,9 @@ import logging
 
 from pydantic import BaseModel, Field
 
+from differential.database import DB
 from differential.models import (
+    Call,
     ConsiderationDirection,
     LinkType,
     MoveType,
@@ -14,7 +16,7 @@ from differential.models import (
     PageType,
     Workspace,
 )
-from differential.moves.base import MoveDef, MoveResult, MoveState, write_page_file
+from differential.moves.base import MoveDef, MoveResult, write_page_file
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +32,7 @@ class ProposeHypothesisPayload(BaseModel):
     strength: float = Field(2.5, description="0-5 consideration strength")
 
 
-async def execute(payload: ProposeHypothesisPayload, state: MoveState) -> MoveResult:
-    call = state.call
-    db = state.db
+async def execute(payload: ProposeHypothesisPayload, call: Call, db: DB) -> MoveResult:
     parent_id = await db.resolve_page_id(payload.parent_question_id)
     if not parent_id:
         log.warning(

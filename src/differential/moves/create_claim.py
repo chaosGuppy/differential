@@ -2,9 +2,11 @@
 
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from differential.database import DB
 from differential.models import (
+    Call,
     ConsiderationDirection,
     LinkType,
     MoveType,
@@ -12,28 +14,14 @@ from differential.models import (
     PageLink,
     PageType,
 )
-from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, MoveState, create_page
+from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, create_page
+from differential.moves.link_consideration import ConsiderationLinkFields
 
 log = logging.getLogger(__name__)
 
 
-class InlineConsiderationLink(BaseModel):
-    question_id: str = Field(description="Page ID of the question this claim bears on")
-    direction: str = Field("neutral", description="supports, opposes, or neutral")
-    strength: float = Field(
-        2.5,
-        description=(
-            "0-5: how strongly this claim bears on the question "
-            "(0 = barely relevant, 5 = highly decisive)"
-        ),
-    )
-    reasoning: str = Field(
-        "", description="Why this claim bears on the question in this direction"
-    )
-
-
 class CreateClaimPayload(CreatePagePayload):
-    links: list[InlineConsiderationLink] = Field(
+    links: list[ConsiderationLinkFields] = Field(
         default_factory=list,
         description=(
             "Consideration links to create for this claim. Each entry links "
@@ -42,17 +30,13 @@ class CreateClaimPayload(CreatePagePayload):
     )
 
 
-async def execute(payload: CreateClaimPayload, state: MoveState) -> MoveResult:
-    result = await create_page(payload, state, PageType.CLAIM, PageLayer.SQUIDGY)
+async def execute(payload: CreateClaimPayload, call: Call, db: DB) -> MoveResult:
+    result = await create_page(payload, call, db, PageType.CLAIM, PageLayer.SQUIDGY)
     if not result.created_page_id or not payload.links:
         return result
 
-    db = state.db
     for link_spec in payload.links:
-        question_id = link_spec.question_id
-        if question_id == "LAST_CREATED" and state.last_created_id:
-            question_id = state.last_created_id
-        resolved = await db.resolve_page_id(question_id)
+        resolved = await db.resolve_page_id(link_spec.question_id)
         if not resolved:
             log.warning(
                 "Inline consideration link skipped: question %s not found",

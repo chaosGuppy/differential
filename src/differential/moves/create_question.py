@@ -2,21 +2,18 @@
 
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from differential.models import LinkType, MoveType, PageLayer, PageLink, PageType
-from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, MoveState, create_page
+from differential.database import DB
+from differential.models import Call, LinkType, MoveType, PageLayer, PageLink, PageType
+from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, create_page
+from differential.moves.link_child_question import ChildQuestionLinkFields
 
 log = logging.getLogger(__name__)
 
 
-class InlineChildQuestionLink(BaseModel):
-    parent_id: str = Field(description="Page ID of the parent question")
-    reasoning: str = Field("", description="Why this is a sub-question")
-
-
 class CreateQuestionPayload(CreatePagePayload):
-    links: list[InlineChildQuestionLink] = Field(
+    links: list[ChildQuestionLinkFields] = Field(
         default_factory=list,
         description=(
             "Parent question links to create for this question. Each entry "
@@ -25,17 +22,13 @@ class CreateQuestionPayload(CreatePagePayload):
     )
 
 
-async def execute(payload: CreateQuestionPayload, state: MoveState) -> MoveResult:
-    result = await create_page(payload, state, PageType.QUESTION, PageLayer.SQUIDGY)
+async def execute(payload: CreateQuestionPayload, call: Call, db: DB) -> MoveResult:
+    result = await create_page(payload, call, db, PageType.QUESTION, PageLayer.SQUIDGY)
     if not result.created_page_id or not payload.links:
         return result
 
-    db = state.db
     for link_spec in payload.links:
-        parent_id = link_spec.parent_id
-        if parent_id == "LAST_CREATED" and state.last_created_id:
-            parent_id = state.last_created_id
-        resolved = await db.resolve_page_id(parent_id)
+        resolved = await db.resolve_page_id(link_spec.parent_id)
         if not resolved:
             log.warning(
                 "Inline child question link skipped: parent %s not found",

@@ -1,11 +1,12 @@
 """CREATE_CONCEPT move: create a defined term or distinction."""
 
-from differential.models import MoveType, PageLayer, PageType
-from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, MoveState, create_page
+from differential.database import DB
+from differential.models import Call, MoveType, PageLayer, PageType
+from differential.moves.base import CreatePagePayload, MoveDef, MoveResult, create_page
 
 
-async def execute(payload: CreatePagePayload, state: MoveState) -> MoveResult:
-    return await create_page(payload, state, PageType.CONCEPT, PageLayer.SQUIDGY)
+async def execute(payload: CreatePagePayload, call: Call, db: DB) -> MoveResult:
+    return await create_page(payload, call, db, PageType.CONCEPT, PageLayer.SQUIDGY)
 
 
 MOVE = MoveDef(

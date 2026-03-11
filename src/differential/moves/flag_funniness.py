@@ -4,8 +4,9 @@ import logging
 
 from pydantic import BaseModel, Field
 
-from differential.models import MoveType
-from differential.moves.base import MoveDef, MoveResult, MoveState
+from differential.database import DB
+from differential.models import Call, MoveType
+from differential.moves.base import MoveDef, MoveResult
 
 log = logging.getLogger(__name__)
 
@@ -15,9 +16,9 @@ class FlagFunninessPayload(BaseModel):
     note: str = Field(description="What seems off")
 
 
-async def execute(payload: FlagFunninessPayload, state: MoveState) -> MoveResult:
-    page_id = await state.db.resolve_page_id(payload.page_id)
-    await state.db.save_page_flag("funniness", call_id=state.call.id, note=payload.note, page_id=page_id)
+async def execute(payload: FlagFunninessPayload, call: Call, db: DB) -> MoveResult:
+    page_id = await db.resolve_page_id(payload.page_id)
+    await db.save_page_flag("funniness", call_id=call.id, note=payload.note, page_id=page_id)
     log.info("Funniness flagged: page=%s, note=%s", payload.page_id, payload.note[:80])
     return MoveResult("Done.")
 
