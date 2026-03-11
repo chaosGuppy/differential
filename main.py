@@ -23,34 +23,15 @@ load_dotenv()
 
 from differential.database import DB
 from differential.models import Page, PageLayer, PageLink, PageType, LinkType, Workspace
-from differential.orchestrator import Orchestrator, ingest_until_done
+from differential.orchestrator import Orchestrator, create_root_question
+from differential.sources import create_source_page, run_ingest_calls
 from differential.chat import run_chat
 from differential.mapper import generate_map
 from differential.summary import generate_summary, save_summary
 from differential import tracer
 from differential.tracer import generate_trace
 
-log = logging.getLogger(__name__)
-
 PAGES_DIR = Path(__file__).parent / "pages"
-
-
-async def create_root_question(question_text: str, db: DB) -> str:
-    page = Page(
-        page_type=PageType.QUESTION,
-        layer=PageLayer.SQUIDGY,
-        workspace=Workspace.RESEARCH,
-        content=question_text,
-        summary=question_text[:120],
-        epistemic_status=2.5,
-        epistemic_type="open question",
-        provenance_model="human",
-        provenance_call_type="init",
-        provenance_call_id="init",
-        extra={"status": "open"},
-    )
-    await db.save_page(page)
-    return page.id
 
 
 async def cmd_add_question(
@@ -103,98 +84,13 @@ async def cmd_add_question(
         print(f"  python main.py --continue {page.id} --budget N")
 
 
-def _read_file_content(path: Path) -> str:
-    """Extract text from a file. Supports plain text and PDF."""
-    if path.suffix.lower() == ".pdf":
-        try:
-            import pypdf
-        except ImportError:
-            raise RuntimeError(
-                "pypdf is required for PDF ingestion: python -m pip install pypdf"
-            )
-        reader = pypdf.PdfReader(str(path))
-        pages = [page.extract_text() or "" for page in reader.pages]
-        return "\n\n".join(pages)
-    return path.read_text(encoding="utf-8")
-
-
-def _generate_source_summary(content: str, filename: str) -> str:
-    """Generate a 2-3 sentence LLM summary of a source document."""
-    from llm import run_llm
-
-    excerpt = content[:8000]
-    if len(content) > 8000:
-        excerpt += f"\n\n[Document truncated; full length: {len(content):,} chars]"
-    try:
-        return run_llm(
-            system_prompt="You summarize documents for a research workspace. Be concise and factual.",
-            user_message=(
-                f"Summarize this document in 2-3 sentences: what type of document is it, "
-                f"what is it about, and what would be its main relevance for research?\n\n"
-                f"Filename: {filename}\n\n{excerpt}"
-            ),
-            max_tokens=256,
-        ).strip()
-    except Exception as e:
-        log.error("Source summary generation failed: %s", e, exc_info=True)
-        print(f"  [ingest] Summary generation failed ({e}) — using filename.")
-        return filename
-
-
-async def _create_source_page(filepath: str, db: DB) -> Page | None:
-    """Read a file and create a Source page. Returns the page, or None on error."""
-    path = Path(filepath)
-    if not path.exists():
-        print(f"Error: file not found: {filepath}")
-        return None
-    try:
-        content = _read_file_content(path)
-    except Exception as e:
-        log.error("Failed to read file %s: %s", filepath, e, exc_info=True)
-        print(f"Error reading {filepath}: {e}")
-        return None
-
-    print(f"  Summarising {path.name}...")
-    summary = _generate_source_summary(content, path.name)
-    page = Page(
-        page_type=PageType.SOURCE,
-        layer=PageLayer.SQUIDGY,
-        workspace=Workspace.RESEARCH,
-        content=content,
-        summary=summary,
-        epistemic_status=2.5,
-        epistemic_type="ingested document",
-        provenance_model="human",
-        provenance_call_type="ingest",
-        provenance_call_id="manual",
-        extra={"filename": path.name, "char_count": len(content)},
-    )
-    await db.save_page(page)
-    print(f"\nSource created: {page.id}")
-    print(f"File:           {path.name} ({len(content):,} chars)")
-    print(f"Summary:        {summary[:120]}{'…' if len(summary) > 120 else ''}")
-    return page
-
-
-async def _run_ingest_calls(source_pages: list[Page], question_id: str, db: DB) -> int:
-    """Run ingest extraction calls for each source against a question. Returns calls made."""
-    made = 0
-    for source_page in source_pages:
-        if not await db.budget_remaining():
-            print("  Budget exhausted — skipping remaining ingest extractions.")
-            break
-        rounds = await ingest_until_done(source_page, question_id, db)
-        made += rounds
-    return made
-
-
 async def cmd_ingest(
     ingest_files: list[str], for_question_id: str | None, budget: int | None, db: DB
 ) -> None:
     # Create source pages first (always free)
     source_pages = []
     for filepath in ingest_files:
-        page = await _create_source_page(filepath, db)
+        page = await create_source_page(filepath, db)
         if page:
             source_pages.append(page)
 
@@ -225,7 +121,7 @@ async def cmd_ingest(
     print(f"\nExtracting considerations for: {question.summary[:80]}")
     print(f"Budget: {effective_budget} call{'s' if effective_budget != 1 else ''}\n")
     await db.init_budget(effective_budget)
-    made = await _run_ingest_calls(source_pages, for_question_id, db)
+    made = await run_ingest_calls(source_pages, for_question_id, db)
     total, used = await db.get_budget()
     print(f"\nIngest complete. {made} extraction call{'s' if made != 1 else ''} made.")
     print(f"Budget used: {used}/{total}")
@@ -323,12 +219,12 @@ async def cmd_new(
     if ingest_files:
         source_pages = []
         for filepath in ingest_files:
-            page = await _create_source_page(filepath, db)
+            page = await create_source_page(filepath, db)
             if page:
                 source_pages.append(page)
         if source_pages:
             print(f"\nIngesting {len(source_pages)} source file(s)...")
-            await _run_ingest_calls(source_pages, question_id, db)
+            await run_ingest_calls(source_pages, question_id, db)
 
     await Orchestrator(db).run(question_id)
     await _print_summary(db)
@@ -583,15 +479,12 @@ async def async_main():
     else:
         log_level = logging.WARNING
     logging.basicConfig(
-        level=log_level,
+        level=logging.WARNING,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
         stream=sys.stderr,
     )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("supabase").setLevel(logging.WARNING)
-    logging.getLogger("hpack").setLevel(logging.WARNING)
+    logging.getLogger("differential").setLevel(log_level)
 
     if args.no_trace:
         tracer.TRACING_ENABLED = False

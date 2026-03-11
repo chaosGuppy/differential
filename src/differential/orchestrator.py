@@ -11,6 +11,8 @@ from differential.models import (
     AssessDispatchPayload,
     CallType,
     Page,
+    PageLayer,
+    PageType,
     PrioritizationDispatchPayload,
     ScoutDispatchPayload,
     ScoutMode,
@@ -25,6 +27,24 @@ DEFAULT_FRUIT_THRESHOLD = 4
 DEFAULT_MAX_ROUNDS = 5
 DEFAULT_INGEST_FRUIT_THRESHOLD = 5
 DEFAULT_INGEST_MAX_ROUNDS = 5
+
+
+async def create_root_question(question_text: str, db: DB) -> str:
+    page = Page(
+        page_type=PageType.QUESTION,
+        layer=PageLayer.SQUIDGY,
+        workspace=Workspace.RESEARCH,
+        content=question_text,
+        summary=question_text[:120],
+        epistemic_status=2.5,
+        epistemic_type="open question",
+        provenance_model="human",
+        provenance_call_type="init",
+        provenance_call_id="init",
+        extra={"status": "open"},
+    )
+    await db.save_page(page)
+    return page.id
 
 
 async def _consume_budget(db: DB) -> bool:
