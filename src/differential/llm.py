@@ -9,7 +9,6 @@ Exports three calling modes:
 
 import asyncio
 import logging
-import os
 from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,12 +17,9 @@ import anthropic
 from anthropic.types import MessageParam, TextBlock, ToolUseBlock
 from pydantic import BaseModel
 
+from differential.settings import get_settings
+
 PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
-MODEL = (
-    "claude-haiku-4-5-20251001"
-    if os.environ.get("DIFFERENTIAL_TEST_MODE")
-    else "claude-opus-4-6"
-)
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +93,7 @@ class AgentResult:
 
 async def _call_api(
     client: anthropic.AsyncAnthropic,
+    model: str,
     system_prompt: str,
     messages: list[dict],
     tools: list[dict] | None = None,
@@ -105,7 +102,7 @@ async def _call_api(
 ) -> anthropic.types.Message:
     """Make a single Anthropic API call with retry logic."""
     kwargs: dict = {
-        "model": MODEL,
+        "model": model,
         "max_tokens": max_tokens,
         "system": system_prompt,
         "messages": messages,
@@ -116,7 +113,7 @@ async def _call_api(
     n_tools = len(tools) if tools else 0
     log.debug(
         "API call: model=%s, max_tokens=%d, tools=%d, system_prompt_len=%d, messages=%d",
-        MODEL, max_tokens, n_tools, len(system_prompt), len(messages),
+        model, max_tokens, n_tools, len(system_prompt), len(messages),
     )
 
     for attempt in range(MAX_API_RETRIES):
@@ -162,7 +159,7 @@ async def agent_loop(
     tools: list[Tool],
     *,
     max_tokens: int = 4096,
-    max_rounds: int = 6,
+    max_rounds: int | None = None,
 ) -> AgentResult:
     """Run a tool-use conversation loop.
 
@@ -172,12 +169,12 @@ async def agent_loop(
 
     Returns AgentResult with concatenated text and a log of all tool calls.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "ANTHROPIC_API_KEY environment variable not set. "
-            "Set it before running the workspace."
-        )
+    settings = get_settings()
+    effective_rounds = max_rounds if max_rounds is not None else (
+        2 if settings.is_smoke_test else 6
+    )
+    api_key = settings.require_anthropic_key()
+    model = settings.model
     client = anthropic.AsyncAnthropic(api_key=api_key)
 
     tool_defs = [
@@ -193,7 +190,7 @@ async def agent_loop(
     tool_names = [t.name for t in tools]
     log.debug(
         "agent_loop starting: max_rounds=%d, max_tokens=%d, tools=%s",
-        max_rounds, max_tokens, tool_names,
+        effective_rounds, max_tokens, tool_names,
     )
 
     messages: list[dict] = [{"role": "user", "content": user_message}]
@@ -203,10 +200,11 @@ async def agent_loop(
     all_warnings: list[str] = []
     round_num = 0
 
-    for round_num in range(max_rounds + 1):
-        log.debug("agent_loop round %d/%d", round_num + 1, max_rounds)
+    for round_num in range(effective_rounds + 1):
+        log.debug("agent_loop round %d/%d", round_num + 1, effective_rounds)
         response = await _call_api(
             client,
+            model,
             system_prompt,
             messages,
             tool_defs or None,
@@ -300,7 +298,7 @@ async def agent_loop(
             output_tokens=response.usage.output_tokens,
         ))
 
-        remaining = max_rounds - round_num
+        remaining = effective_rounds - round_num
         if remaining == 1:
             budget_note = {
                 "type": "text",
@@ -342,9 +340,9 @@ async def single_call_with_tools(
     Use this when you want the LLM to pick and invoke tools in one shot
     (e.g. phase-1 page loading, single-call prioritization).
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ANTHROPIC_API_KEY environment variable not set.")
+    settings = get_settings()
+    api_key = settings.require_anthropic_key()
+    model = settings.model
     client = anthropic.AsyncAnthropic(api_key=api_key)
 
     tool_defs = [
@@ -365,7 +363,7 @@ async def single_call_with_tools(
     messages: list[dict] = [{"role": "user", "content": user_message}]
     all_warnings: list[str] = []
     response = await _call_api(
-        client, system_prompt, messages, tool_defs or None, max_tokens,
+        client, model, system_prompt, messages, tool_defs or None, max_tokens,
         warnings=all_warnings,
     )
 
@@ -431,9 +429,9 @@ async def text_call(
 
     Pass `messages` for multi-turn conversations, or `user_message` for single-turn.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ANTHROPIC_API_KEY environment variable not set.")
+    settings = get_settings()
+    api_key = settings.require_anthropic_key()
+    model = settings.model
     client = anthropic.AsyncAnthropic(api_key=api_key)
     msg_list = (
         messages
@@ -441,7 +439,7 @@ async def text_call(
         else [{"role": "user", "content": user_message}]
     )
     log.debug("text_call: max_tokens=%d, messages=%d", max_tokens, len(msg_list))
-    response = await _call_api(client, system_prompt, msg_list, max_tokens=max_tokens)
+    response = await _call_api(client, model, system_prompt, msg_list, max_tokens=max_tokens)
     for block in response.content:
         if isinstance(block, TextBlock):
             log.debug("text_call returned %d chars", len(block.text))
@@ -462,21 +460,21 @@ async def structured_call(
     Uses the Anthropic structured output API (messages.parse with output_format).
     Returns the parsed response as a dict, or None on failure.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ANTHROPIC_API_KEY environment variable not set.")
+    settings = get_settings()
+    api_key = settings.require_anthropic_key()
+    model = settings.model
     client = anthropic.AsyncAnthropic(api_key=api_key)
 
     messages: list[MessageParam] = [{"role": "user", "content": user_message}]
     log.debug(
         "structured_call: model=%s, response_model=%s, max_tokens=%d",
-        MODEL, response_model.__name__, max_tokens,
+        model, response_model.__name__, max_tokens,
     )
 
     for attempt in range(MAX_API_RETRIES):
         try:
             response = await client.messages.parse(
-                model=MODEL,
+                model=model,
                 max_tokens=max_tokens,
                 system=system_prompt,
                 messages=messages,

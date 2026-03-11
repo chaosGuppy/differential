@@ -11,14 +11,12 @@ from differential.broadcast import Broadcaster
 from differential.database import DB
 from differential.models import Call, CallType
 from differential.trace_events import TraceEvent
+from differential.settings import get_settings
 
 log = logging.getLogger(__name__)
 
 PAGES_DIR = Path(__file__).parent.parent.parent / "pages"
 TRACES_DIR = PAGES_DIR / "traces"
-
-
-TRACING_ENABLED = not os.environ.get("DIFFERENTIAL_TEST_MODE")
 
 
 class CallTrace:
@@ -28,7 +26,7 @@ class CallTrace:
         self.call_id = call_id
         self.db = db
         self.events: list[dict] = []
-        self._enabled = TRACING_ENABLED
+        self._enabled = get_settings().tracing_enabled
         self._broadcaster = broadcaster
 
     async def record(self, event_data: TraceEvent) -> None:

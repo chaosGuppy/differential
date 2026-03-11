@@ -14,6 +14,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from differential.database import DB
 from differential.models import Call, Page, PageLink, PageType, Project, Workspace
+from differential.settings import get_settings
 from differential.api.schemas import (
     CallTraceOut,
     ConsiderationOut,
@@ -46,7 +47,7 @@ app.add_middleware(
 
 
 async def _get_db(project_id: str = "") -> DB:
-    prod = os.environ.get("DIFFERENTIAL_PROD_DB", "").lower() in ("1", "true")
+    prod = get_settings().is_prod_db
     return await DB.create(
         run_id=str(uuid.uuid4()),
         prod=prod,

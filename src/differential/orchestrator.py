@@ -9,10 +9,13 @@ import os
 from differential.broadcast import Broadcaster
 from differential.calls import run_assess, run_ingest, run_prioritization, run_scout
 from differential.database import DB
+from differential.settings import get_settings
 from differential.models import (
     AssessDispatchPayload,
     CallType,
     Page,
+    PageLayer,
+    PageType,
     PrioritizationDispatchPayload,
     ScoutDispatchPayload,
     ScoutMode,
@@ -28,6 +31,27 @@ DEFAULT_FRUIT_THRESHOLD = 4
 DEFAULT_MAX_ROUNDS = 5
 DEFAULT_INGEST_FRUIT_THRESHOLD = 5
 DEFAULT_INGEST_MAX_ROUNDS = 5
+
+SMOKE_TEST_MAX_ROUNDS = 1
+SMOKE_TEST_INGEST_MAX_ROUNDS = 1
+
+
+async def create_root_question(question_text: str, db: DB) -> str:
+    page = Page(
+        page_type=PageType.QUESTION,
+        layer=PageLayer.SQUIDGY,
+        workspace=Workspace.RESEARCH,
+        content=question_text,
+        summary=question_text[:120],
+        epistemic_status=2.5,
+        epistemic_type="open question",
+        provenance_model="human",
+        provenance_call_type="init",
+        provenance_call_id="init",
+        extra={"status": "open"},
+    )
+    await db.save_page(page)
+    return page.id
 
 
 async def _consume_budget(db: DB) -> bool:
@@ -53,7 +77,7 @@ def _resolve_round_mode(mode: ScoutMode, round_index: int) -> ScoutMode:
 async def scout_until_done(
     question_id: str,
     db: DB,
-    max_rounds: int = DEFAULT_MAX_ROUNDS,
+    max_rounds: int | None = None,
     fruit_threshold: int = DEFAULT_FRUIT_THRESHOLD,
     parent_call_id: str | None = None,
     context_page_ids: list | None = None,
@@ -66,6 +90,11 @@ async def scout_until_done(
     fruit_threshold is the primary stopping condition; max_rounds is a failsafe.
     mode: 'alternate' (default) alternates abstract/concrete; 'abstract' or 'concrete' locks to one.
     """
+    if max_rounds is None:
+        max_rounds = (
+            SMOKE_TEST_MAX_ROUNDS if get_settings().is_smoke_test
+            else DEFAULT_MAX_ROUNDS
+        )
     log.info(
         "scout_until_done: question=%s, max_rounds=%d, fruit_threshold=%d, mode=%s",
         question_id[:8], max_rounds, fruit_threshold, mode.value,
@@ -110,7 +139,7 @@ async def ingest_until_done(
     source_page: Page,
     question_id: str,
     db: DB,
-    max_rounds: int = DEFAULT_INGEST_MAX_ROUNDS,
+    max_rounds: int | None = None,
     fruit_threshold: int = DEFAULT_INGEST_FRUIT_THRESHOLD,
     parent_call_id: str | None = None,
     broadcaster=None,
@@ -121,6 +150,11 @@ async def ingest_until_done(
     fruit_threshold is the primary stopping condition; max_rounds is a failsafe.
     Each round sees previously extracted claims via the question's working context.
     """
+    if max_rounds is None:
+        max_rounds = (
+            SMOKE_TEST_INGEST_MAX_ROUNDS if get_settings().is_smoke_test
+            else DEFAULT_INGEST_MAX_ROUNDS
+        )
     log.info(
         "ingest_until_done: source=%s, question=%s, max_rounds=%d",
         source_page.id[:8], question_id[:8], max_rounds,
