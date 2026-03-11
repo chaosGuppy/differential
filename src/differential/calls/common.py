@@ -34,7 +34,12 @@ from differential.moves.registry import MOVES
 
 log = logging.getLogger(__name__)
 
-from differential.trace_events import LLMExchangeEvent, MovesExecutedEvent, WarningEvent
+from differential.trace_events import (
+    LLMExchangeEvent,
+    MovesExecutedEvent,
+    PageRef,
+    WarningEvent,
+)
 from differential.tracer import CallTrace
 
 PAGE_CREATING_MOVES = {
@@ -152,7 +157,7 @@ async def _save_exchanges(
                                 and create_idx < len(created_page_ids)):
                             round_created.append(created_page_ids[create_idx])
                             create_idx += 1
-                await trace.record(moves_to_trace_event(round_moves, round_created))
+                await trace.record(await moves_to_trace_event(round_moves, round_created, db))
     for w in agent_result.warnings:
         if trace:
             await trace.record(WarningEvent(message=w))
@@ -317,11 +322,23 @@ async def extract_loaded_page_ids(result: RunCallResult, db: DB) -> list[str]:
     return loaded
 
 
-def moves_to_trace_event(
+async def resolve_page_refs(page_ids: list[str], db: DB) -> list[PageRef]:
+    """Resolve a list of page IDs to PageRef objects with summaries."""
+    refs = []
+    for pid in page_ids:
+        page = await db.get_page(pid)
+        summary = page.summary if page else ""
+        refs.append(PageRef(id=pid, summary=summary))
+    return refs
+
+
+async def moves_to_trace_event(
     moves: list[Move],
     created_page_ids: list[str],
+    db: DB,
 ) -> MovesExecutedEvent:
     """Build a typed MovesExecutedEvent from a list of moves."""
+    refs = await resolve_page_refs(created_page_ids, db)
     return MovesExecutedEvent(
         moves=[
             {
@@ -330,7 +347,7 @@ def moves_to_trace_event(
             }
             for m in moves
         ],
-        created_page_ids=created_page_ids,
+        created_page_ids=refs,
     )
 
 

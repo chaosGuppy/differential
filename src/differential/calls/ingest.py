@@ -8,6 +8,7 @@ from differential.calls.common import (
     extract_loaded_page_ids,
     format_moves_for_review,
     log_page_ratings,
+    resolve_page_refs,
     run_call,
     run_closing_review,
 )
@@ -44,8 +45,8 @@ async def run_ingest(
         question_id, db, extra_page_ids=preloaded
     )
     await trace.record(ContextBuiltEvent(
-        working_context_page_ids=working_page_ids,
-        preloaded_page_ids=preloaded,
+        working_context_page_ids=await resolve_page_refs(working_page_ids, db),
+        preloaded_page_ids=await resolve_page_refs(preloaded, db),
         source_page_id=source_page.id,
     ))
 
