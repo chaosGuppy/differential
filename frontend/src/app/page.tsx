@@ -1,9 +1,9 @@
 import Link from "next/link";
-import type { ProjectOut } from "@/api";
+import type { Project } from "@/api";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:8000";
 
-async function getProjects(): Promise<ProjectOut[]> {
+async function getProjects(): Promise<Project[]> {
   const res = await fetch(`${API_BASE}/api/projects`, {
     cache: "no-store",
   });

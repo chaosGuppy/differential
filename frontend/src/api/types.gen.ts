@@ -5,15 +5,15 @@ export type ClientOptions = {
 };
 
 /**
- * CallOut
+ * Call
  */
-export type CallOut = {
+export type Call = {
+    call_type: CallType;
+    workspace: Workspace;
     /**
      * Id
      */
     id: string;
-    call_type: CallType;
-    workspace: Workspace;
     /**
      * Project Id
      */
@@ -65,6 +65,41 @@ export type CallOut = {
 export type CallStatus = 'pending' | 'running' | 'complete' | 'failed';
 
 /**
+ * CallTraceOut
+ */
+export type CallTraceOut = {
+    call: Call;
+    /**
+     * Events
+     */
+    events: Array<({
+        event: 'context_built';
+    } & ContextBuiltEventOut) | ({
+        event: 'phase1_loaded';
+    } & Phase1LoadedEventOut) | ({
+        event: 'phase2_loaded';
+    } & Phase2LoadedEventOut) | ({
+        event: 'moves_executed';
+    } & MovesExecutedEventOut) | ({
+        event: 'review_complete';
+    } & ReviewCompleteEventOut) | ({
+        event: 'llm_exchange';
+    } & LlmExchangeEventOut) | ({
+        event: 'warning';
+    } & WarningEventOut) | ({
+        event: 'error';
+    } & ErrorEventOut) | ({
+        event: 'dispatches_planned';
+    } & DispatchesPlannedEventOut) | ({
+        event: 'dispatch_executed';
+    } & DispatchExecutedEventOut)>;
+    /**
+     * Children
+     */
+    children: Array<CallTraceOut>;
+};
+
+/**
  * CallType
  */
 export type CallType = 'scout' | 'assess' | 'prioritization' | 'ingest' | 'reframe' | 'maintain';
@@ -78,8 +113,135 @@ export type ConsiderationDirection = 'supports' | 'opposes' | 'neutral';
  * ConsiderationOut
  */
 export type ConsiderationOut = {
-    page: PageOut;
-    link: PageLinkOut;
+    page: Page;
+    link: PageLink;
+};
+
+/**
+ * ContextBuiltEventOut
+ */
+export type ContextBuiltEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'context_built';
+    /**
+     * Working Context Page Ids
+     */
+    working_context_page_ids?: Array<string>;
+    /**
+     * Preloaded Page Ids
+     */
+    preloaded_page_ids?: Array<string>;
+    /**
+     * Source Page Id
+     */
+    source_page_id?: string | null;
+    /**
+     * Budget
+     */
+    budget?: number | null;
+    /**
+     * Scout Mode
+     */
+    scout_mode?: string | null;
+};
+
+/**
+ * DispatchExecutedEventOut
+ */
+export type DispatchExecutedEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'dispatch_executed';
+    /**
+     * Index
+     */
+    index: number;
+    /**
+     * Child Call Type
+     */
+    child_call_type: string;
+    /**
+     * Question Id
+     */
+    question_id: string;
+    /**
+     * Child Call Id
+     */
+    child_call_id?: string | null;
+};
+
+/**
+ * DispatchTraceItem
+ */
+export type DispatchTraceItem = {
+    /**
+     * Call Type
+     */
+    call_type: string;
+    [key: string]: unknown;
+};
+
+/**
+ * DispatchesPlannedEventOut
+ */
+export type DispatchesPlannedEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'dispatches_planned';
+    /**
+     * Dispatches
+     */
+    dispatches?: Array<DispatchTraceItem>;
+};
+
+/**
+ * ErrorEventOut
+ */
+export type ErrorEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'error';
+    /**
+     * Message
+     */
+    message: string;
 };
 
 /**
@@ -93,55 +255,93 @@ export type HttpValidationError = {
 };
 
 /**
- * LinkType
+ * LLMExchangeEventOut
  */
-export type LinkType = 'consideration' | 'child_question' | 'supersedes' | 'related';
-
-/**
- * PageCountsOut
- */
-export type PageCountsOut = {
+export type LlmExchangeEventOut = {
     /**
-     * Considerations
+     * Ts
      */
-    considerations: number;
+    ts: string;
     /**
-     * Judgements
+     * Call Id
      */
-    judgements: number;
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'llm_exchange';
+    /**
+     * Exchange Id
+     */
+    exchange_id: string;
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * Round
+     */
+    round: number;
+    /**
+     * Input Tokens
+     */
+    input_tokens?: number | null;
+    /**
+     * Output Tokens
+     */
+    output_tokens?: number | null;
 };
 
 /**
- * PageLayer
+ * LLMExchangeOut
  */
-export type PageLayer = 'wiki' | 'squidgy';
-
-/**
- * PageLinkOut
- */
-export type PageLinkOut = {
+export type LlmExchangeOut = {
     /**
      * Id
      */
     id: string;
     /**
-     * From Page Id
+     * Call Id
      */
-    from_page_id: string;
+    call_id: string;
     /**
-     * To Page Id
+     * Phase
      */
-    to_page_id: string;
-    link_type: LinkType;
-    direction: ConsiderationDirection | null;
+    phase: string;
     /**
-     * Strength
+     * Round
      */
-    strength: number;
+    round: number;
     /**
-     * Reasoning
+     * System Prompt
      */
-    reasoning: string;
+    system_prompt: string | null;
+    /**
+     * User Message
+     */
+    user_message: string | null;
+    /**
+     * Response Text
+     */
+    response_text: string | null;
+    /**
+     * Tool Calls
+     */
+    tool_calls: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Input Tokens
+     */
+    input_tokens: number | null;
+    /**
+     * Output Tokens
+     */
+    output_tokens: number | null;
+    /**
+     * Error
+     */
+    error: string | null;
     /**
      * Created At
      */
@@ -149,13 +349,89 @@ export type PageLinkOut = {
 };
 
 /**
- * PageOut
+ * LLMExchangeSummaryOut
  */
-export type PageOut = {
+export type LlmExchangeSummaryOut = {
     /**
      * Id
      */
     id: string;
+    /**
+     * Phase
+     */
+    phase: string;
+    /**
+     * Round
+     */
+    round: number;
+    /**
+     * Input Tokens
+     */
+    input_tokens: number | null;
+    /**
+     * Output Tokens
+     */
+    output_tokens: number | null;
+    /**
+     * Error
+     */
+    error: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * LinkType
+ */
+export type LinkType = 'consideration' | 'child_question' | 'supersedes' | 'related';
+
+/**
+ * MoveTraceItem
+ */
+export type MoveTraceItem = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Summary
+     */
+    summary?: string;
+    [key: string]: unknown;
+};
+
+/**
+ * MovesExecutedEventOut
+ */
+export type MovesExecutedEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'moves_executed';
+    /**
+     * Moves
+     */
+    moves?: Array<MoveTraceItem>;
+    /**
+     * Created Page Ids
+     */
+    created_page_ids?: Array<string>;
+};
+
+/**
+ * Page
+ */
+export type Page = {
     page_type: PageType;
     layer: PageLayer;
     workspace: Workspace;
@@ -167,6 +443,10 @@ export type PageOut = {
      * Summary
      */
     summary: string;
+    /**
+     * Id
+     */
+    id: string;
     /**
      * Project Id
      */
@@ -212,22 +492,117 @@ export type PageOut = {
 };
 
 /**
+ * PageCountsOut
+ */
+export type PageCountsOut = {
+    /**
+     * Considerations
+     */
+    considerations: number;
+    /**
+     * Judgements
+     */
+    judgements: number;
+};
+
+/**
+ * PageLayer
+ */
+export type PageLayer = 'wiki' | 'squidgy';
+
+/**
+ * PageLink
+ */
+export type PageLink = {
+    /**
+     * From Page Id
+     */
+    from_page_id: string;
+    /**
+     * To Page Id
+     */
+    to_page_id: string;
+    link_type: LinkType;
+    /**
+     * Id
+     */
+    id: string;
+    direction: ConsiderationDirection | null;
+    /**
+     * Strength
+     */
+    strength: number;
+    /**
+     * Reasoning
+     */
+    reasoning: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * PageType
  */
 export type PageType = 'source' | 'claim' | 'question' | 'judgement' | 'concept' | 'wiki';
 
 /**
- * ProjectOut
+ * Phase1LoadedEventOut
  */
-export type ProjectOut = {
+export type Phase1LoadedEventOut = {
     /**
-     * Id
+     * Ts
      */
-    id: string;
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'phase1_loaded';
+    /**
+     * Page Ids
+     */
+    page_ids?: Array<string>;
+};
+
+/**
+ * Phase2LoadedEventOut
+ */
+export type Phase2LoadedEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'phase2_loaded';
+    /**
+     * Page Ids
+     */
+    page_ids?: Array<string>;
+};
+
+/**
+ * Project
+ */
+export type Project = {
     /**
      * Name
      */
     name: string;
+    /**
+     * Id
+     */
+    id: string;
     /**
      * Created At
      */
@@ -238,7 +613,7 @@ export type ProjectOut = {
  * QuestionTreeOut
  */
 export type QuestionTreeOut = {
-    question: PageOut;
+    question: Page;
     /**
      * Considerations
      */
@@ -246,11 +621,80 @@ export type QuestionTreeOut = {
     /**
      * Judgements
      */
-    judgements: Array<PageOut>;
+    judgements: Array<Page>;
     /**
      * Child Questions
      */
     child_questions: Array<QuestionTreeOut>;
+};
+
+/**
+ * RealtimeConfigOut
+ */
+export type RealtimeConfigOut = {
+    /**
+     * Url
+     */
+    url: string;
+    /**
+     * Anon Key
+     */
+    anon_key: string;
+};
+
+/**
+ * ReviewCompleteEventOut
+ */
+export type ReviewCompleteEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'review_complete';
+    /**
+     * Remaining Fruit
+     */
+    remaining_fruit?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+};
+
+/**
+ * RunSummaryOut
+ */
+export type RunSummaryOut = {
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * RunTraceOut
+ */
+export type RunTraceOut = {
+    /**
+     * Run Id
+     */
+    run_id: string;
+    question: Page | null;
+    /**
+     * Root Calls
+     */
+    root_calls: Array<CallTraceOut>;
 };
 
 /**
@@ -282,6 +726,28 @@ export type ValidationError = {
 };
 
 /**
+ * WarningEventOut
+ */
+export type WarningEventOut = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Event
+     */
+    event: 'warning';
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
  * Workspace
  */
 export type Workspace = 'research' | 'prioritization';
@@ -299,7 +765,7 @@ export type ListProjectsApiProjectsGetResponses = {
      *
      * Successful Response
      */
-    200: Array<ProjectOut>;
+    200: Array<Project>;
 };
 
 export type ListProjectsApiProjectsGetResponse = ListProjectsApiProjectsGetResponses[keyof ListProjectsApiProjectsGetResponses];
@@ -344,7 +810,7 @@ export type ListPagesApiProjectsProjectIdPagesGetResponses = {
      *
      * Successful Response
      */
-    200: Array<PageOut>;
+    200: Array<Page>;
 };
 
 export type ListPagesApiProjectsProjectIdPagesGetResponse = ListPagesApiProjectsProjectIdPagesGetResponses[keyof ListPagesApiProjectsProjectIdPagesGetResponses];
@@ -374,7 +840,7 @@ export type GetPageApiPagesPageIdGetResponses = {
     /**
      * Successful Response
      */
-    200: PageOut;
+    200: Page;
 };
 
 export type GetPageApiPagesPageIdGetResponse = GetPageApiPagesPageIdGetResponses[keyof GetPageApiPagesPageIdGetResponses];
@@ -406,7 +872,7 @@ export type GetLinksFromApiPagesPageIdLinksFromGetResponses = {
      *
      * Successful Response
      */
-    200: Array<PageLinkOut>;
+    200: Array<PageLink>;
 };
 
 export type GetLinksFromApiPagesPageIdLinksFromGetResponse = GetLinksFromApiPagesPageIdLinksFromGetResponses[keyof GetLinksFromApiPagesPageIdLinksFromGetResponses];
@@ -438,7 +904,7 @@ export type GetLinksToApiPagesPageIdLinksToGetResponses = {
      *
      * Successful Response
      */
-    200: Array<PageLinkOut>;
+    200: Array<PageLink>;
 };
 
 export type GetLinksToApiPagesPageIdLinksToGetResponse = GetLinksToApiPagesPageIdLinksToGetResponses[keyof GetLinksToApiPagesPageIdLinksToGetResponses];
@@ -502,7 +968,7 @@ export type ListRootQuestionsApiProjectsProjectIdQuestionsGetResponses = {
      *
      * Successful Response
      */
-    200: Array<PageOut>;
+    200: Array<Page>;
 };
 
 export type ListRootQuestionsApiProjectsProjectIdQuestionsGetResponse = ListRootQuestionsApiProjectsProjectIdQuestionsGetResponses[keyof ListRootQuestionsApiProjectsProjectIdQuestionsGetResponses];
@@ -574,7 +1040,7 @@ export type ListCallsApiProjectsProjectIdCallsGetResponses = {
      *
      * Successful Response
      */
-    200: Array<CallOut>;
+    200: Array<Call>;
 };
 
 export type ListCallsApiProjectsProjectIdCallsGetResponse = ListCallsApiProjectsProjectIdCallsGetResponses[keyof ListCallsApiProjectsProjectIdCallsGetResponses];
@@ -604,7 +1070,7 @@ export type GetCallApiCallsCallIdGetResponses = {
     /**
      * Successful Response
      */
-    200: CallOut;
+    200: Call;
 };
 
 export type GetCallApiCallsCallIdGetResponse = GetCallApiCallsCallIdGetResponses[keyof GetCallApiCallsCallIdGetResponses];
@@ -636,7 +1102,177 @@ export type GetChildCallsApiCallsCallIdChildrenGetResponses = {
      *
      * Successful Response
      */
-    200: Array<CallOut>;
+    200: Array<Call>;
 };
 
 export type GetChildCallsApiCallsCallIdChildrenGetResponse = GetChildCallsApiCallsCallIdChildrenGetResponses[keyof GetChildCallsApiCallsCallIdChildrenGetResponses];
+
+export type GetRunTraceApiRunsRunIdTraceGetData = {
+    body?: never;
+    path: {
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/runs/{run_id}/trace';
+};
+
+export type GetRunTraceApiRunsRunIdTraceGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetRunTraceApiRunsRunIdTraceGetError = GetRunTraceApiRunsRunIdTraceGetErrors[keyof GetRunTraceApiRunsRunIdTraceGetErrors];
+
+export type GetRunTraceApiRunsRunIdTraceGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunTraceOut;
+};
+
+export type GetRunTraceApiRunsRunIdTraceGetResponse = GetRunTraceApiRunsRunIdTraceGetResponses[keyof GetRunTraceApiRunsRunIdTraceGetResponses];
+
+export type GetCallTraceApiCallsCallIdTraceGetData = {
+    body?: never;
+    path: {
+        /**
+         * Call Id
+         */
+        call_id: string;
+    };
+    query?: never;
+    url: '/api/calls/{call_id}/trace';
+};
+
+export type GetCallTraceApiCallsCallIdTraceGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCallTraceApiCallsCallIdTraceGetError = GetCallTraceApiCallsCallIdTraceGetErrors[keyof GetCallTraceApiCallsCallIdTraceGetErrors];
+
+export type GetCallTraceApiCallsCallIdTraceGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallTraceOut;
+};
+
+export type GetCallTraceApiCallsCallIdTraceGetResponse = GetCallTraceApiCallsCallIdTraceGetResponses[keyof GetCallTraceApiCallsCallIdTraceGetResponses];
+
+export type ListLlmExchangesApiCallsCallIdLlmExchangesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Call Id
+         */
+        call_id: string;
+    };
+    query?: never;
+    url: '/api/calls/{call_id}/llm-exchanges';
+};
+
+export type ListLlmExchangesApiCallsCallIdLlmExchangesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListLlmExchangesApiCallsCallIdLlmExchangesGetError = ListLlmExchangesApiCallsCallIdLlmExchangesGetErrors[keyof ListLlmExchangesApiCallsCallIdLlmExchangesGetErrors];
+
+export type ListLlmExchangesApiCallsCallIdLlmExchangesGetResponses = {
+    /**
+     * Response List Llm Exchanges Api Calls  Call Id  Llm Exchanges Get
+     *
+     * Successful Response
+     */
+    200: Array<LlmExchangeSummaryOut>;
+};
+
+export type ListLlmExchangesApiCallsCallIdLlmExchangesGetResponse = ListLlmExchangesApiCallsCallIdLlmExchangesGetResponses[keyof ListLlmExchangesApiCallsCallIdLlmExchangesGetResponses];
+
+export type GetLlmExchangeApiLlmExchangesExchangeIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Exchange Id
+         */
+        exchange_id: string;
+    };
+    query?: never;
+    url: '/api/llm-exchanges/{exchange_id}';
+};
+
+export type GetLlmExchangeApiLlmExchangesExchangeIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetLlmExchangeApiLlmExchangesExchangeIdGetError = GetLlmExchangeApiLlmExchangesExchangeIdGetErrors[keyof GetLlmExchangeApiLlmExchangesExchangeIdGetErrors];
+
+export type GetLlmExchangeApiLlmExchangesExchangeIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: LlmExchangeOut;
+};
+
+export type GetLlmExchangeApiLlmExchangesExchangeIdGetResponse = GetLlmExchangeApiLlmExchangesExchangeIdGetResponses[keyof GetLlmExchangeApiLlmExchangesExchangeIdGetResponses];
+
+export type GetRealtimeConfigApiRealtimeConfigGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/realtime/config';
+};
+
+export type GetRealtimeConfigApiRealtimeConfigGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RealtimeConfigOut;
+};
+
+export type GetRealtimeConfigApiRealtimeConfigGetResponse = GetRealtimeConfigApiRealtimeConfigGetResponses[keyof GetRealtimeConfigApiRealtimeConfigGetResponses];
+
+export type ListQuestionRunsApiQuestionsQuestionIdRunsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Question Id
+         */
+        question_id: string;
+    };
+    query?: never;
+    url: '/api/questions/{question_id}/runs';
+};
+
+export type ListQuestionRunsApiQuestionsQuestionIdRunsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListQuestionRunsApiQuestionsQuestionIdRunsGetError = ListQuestionRunsApiQuestionsQuestionIdRunsGetErrors[keyof ListQuestionRunsApiQuestionsQuestionIdRunsGetErrors];
+
+export type ListQuestionRunsApiQuestionsQuestionIdRunsGetResponses = {
+    /**
+     * Response List Question Runs Api Questions  Question Id  Runs Get
+     *
+     * Successful Response
+     */
+    200: Array<RunSummaryOut>;
+};
+
+export type ListQuestionRunsApiQuestionsQuestionIdRunsGetResponse = ListQuestionRunsApiQuestionsQuestionIdRunsGetResponses[keyof ListQuestionRunsApiQuestionsQuestionIdRunsGetResponses];

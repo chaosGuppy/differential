@@ -1,9 +1,9 @@
 import Link from "next/link";
-import type { PageOut } from "@/api";
+import type { Page } from "@/api";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:8000";
 
-async function getRootQuestions(projectId: string): Promise<PageOut[]> {
+async function getRootQuestions(projectId: string): Promise<Page[]> {
   const res = await fetch(
     `${API_BASE}/api/projects/${projectId}/questions`,
     { cache: "no-store" },

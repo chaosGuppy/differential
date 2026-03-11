@@ -4,7 +4,9 @@ Budget is tracked here; prioritization and review calls are free.
 """
 
 import logging
+import os
 
+from differential.broadcast import Broadcaster
 from differential.calls import run_assess, run_ingest, run_prioritization, run_scout
 from differential.database import DB
 from differential.settings import get_settings
@@ -19,6 +21,7 @@ from differential.models import (
     ScoutMode,
     Workspace,
 )
+from differential.trace_events import DispatchExecutedEvent
 from differential.tracer import CallTrace
 
 
@@ -79,6 +82,7 @@ async def scout_until_done(
     parent_call_id: str | None = None,
     context_page_ids: list | None = None,
     mode: ScoutMode = ScoutMode.ALTERNATE,
+    broadcaster=None,
 ) -> tuple[int, list[str]]:
     """
     Run Scout rounds until remaining_fruit falls below fruit_threshold or max_rounds
@@ -109,7 +113,9 @@ async def scout_until_done(
             context_page_ids=context_page_ids,
         )
         call_ids.append(call.id)
-        _, review = await run_scout(question_id, call, db, mode=round_mode)
+        _, review = await run_scout(
+            question_id, call, db, mode=round_mode, broadcaster=broadcaster,
+        )
         rounds += 1
 
         remaining_fruit = review.get("remaining_fruit", 5) if review else 5
@@ -136,6 +142,7 @@ async def ingest_until_done(
     max_rounds: int | None = None,
     fruit_threshold: int = DEFAULT_INGEST_FRUIT_THRESHOLD,
     parent_call_id: str | None = None,
+    broadcaster=None,
 ) -> int:
     """
     Run Ingest rounds on a source/question pair until remaining_fruit falls below
@@ -162,7 +169,7 @@ async def ingest_until_done(
             scope_page_id=source_page.id,
             parent_call_id=parent_call_id,
         )
-        _, review = await run_ingest(source_page, question_id, call, db)
+        _, review = await run_ingest(source_page, question_id, call, db, broadcaster=broadcaster)
         rounds += 1
 
         remaining_fruit = review.get("remaining_fruit", 5) if review else 5
@@ -187,6 +194,7 @@ async def assess_question(
     db: DB,
     parent_call_id: str | None = None,
     context_page_ids: list | None = None,
+    broadcaster=None,
 ) -> str | None:
     """Run one Assess call on a question. Returns call ID, or None if no budget."""
     log.info("assess_question: question=%s", question_id[:8])
@@ -199,13 +207,28 @@ async def assess_question(
         parent_call_id=parent_call_id,
         context_page_ids=context_page_ids,
     )
-    await run_assess(question_id, call, db)
+    await run_assess(question_id, call, db, broadcaster=broadcaster)
     return call.id
+
+
+def _create_broadcaster(db: DB) -> Broadcaster | None:
+    """Create a broadcaster for the given DB's run_id, or None if disabled."""
+    if os.environ.get("DIFFERENTIAL_TEST_MODE"):
+        return None
+    supabase_url = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
+    supabase_key = os.environ.get(
+        "SUPABASE_KEY",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0."
+        "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+    )
+    return Broadcaster(db.run_id, supabase_url, supabase_key)
 
 
 class Orchestrator:
     def __init__(self, db: DB):
         self.db = db
+        self.broadcaster: Broadcaster | None = None
 
     async def investigate_question(
         self,
@@ -246,6 +269,7 @@ class Orchestrator:
             call=p_call,
             budget=actual_budget,
             db=self.db,
+            broadcaster=self.broadcaster,
         )
 
         dispatches = plan.get("dispatches", [])
@@ -260,8 +284,14 @@ class Orchestrator:
                 "No dispatches from prioritization, running default scout+assess "
                 "for question=%s", question_id[:8],
             )
-            await scout_until_done(question_id, self.db, parent_call_id=p_call.id)
-            await assess_question(question_id, self.db, parent_call_id=p_call.id)
+            await scout_until_done(
+                question_id, self.db, parent_call_id=p_call.id,
+                broadcaster=self.broadcaster,
+            )
+            await assess_question(
+                question_id, self.db, parent_call_id=p_call.id,
+                broadcaster=self.broadcaster,
+            )
             return
 
         # Execute the plan one dispatch at a time
@@ -296,6 +326,7 @@ class Orchestrator:
                     parent_call_id=p_call.id,
                     context_page_ids=p.context_page_ids,
                     mode=p.mode,
+                    broadcaster=self.broadcaster,
                 )
                 budget_spent += spent
                 child_call_id = child_ids[0] if child_ids else None
@@ -307,6 +338,7 @@ class Orchestrator:
                     self.db,
                     parent_call_id=p_call.id,
                     context_page_ids=p.context_page_ids,
+                    broadcaster=self.broadcaster,
                 )
                 if child_call_id:
                     budget_spent += 1
@@ -325,30 +357,35 @@ class Orchestrator:
                 budget_spent += p.budget
 
             if p_trace:
-                trace_data: dict = {
-                    "index": i,
-                    "child_call_type": dispatch.call_type.value,
-                    "question_id": resolved,
-                }
-                if child_call_id:
-                    trace_data["child_call_id"] = child_call_id
-                p_trace.record("dispatch_executed", trace_data)
+                await p_trace.record(DispatchExecutedEvent(
+                    index=i,
+                    child_call_type=dispatch.call_type.value,
+                    question_id=resolved,
+                    child_call_id=child_call_id,
+                ))
 
         if p_trace:
             await p_trace.save()
 
     async def run(self, root_question_id: str) -> None:
         """Entry point. Investigate the root question with the full budget."""
+        self.broadcaster = _create_broadcaster(self.db)
+        log.info("Orchestrator: run_id=%s", self.db.run_id)
+
         total, used = await self.db.get_budget()
         log.info(
             "Orchestrator.run starting: root_question=%s, budget=%d",
             root_question_id[:8], total,
         )
 
-        await self.investigate_question(
-            question_id=root_question_id,
-            budget=total,
-        )
+        try:
+            await self.investigate_question(
+                question_id=root_question_id,
+                budget=total,
+            )
+        finally:
+            if self.broadcaster:
+                await self.broadcaster.close()
 
         total, used = await self.db.get_budget()
         log.info("Orchestrator.run complete: budget used %d/%d", used, total)

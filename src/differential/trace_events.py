@@ -1,0 +1,94 @@
+"""Typed trace event models for the execution tracer."""
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field
+
+
+class MoveTraceItem(BaseModel):
+    type: str
+    summary: str = ""
+    model_config = {"extra": "allow"}
+
+
+class DispatchTraceItem(BaseModel):
+    call_type: str
+    model_config = {"extra": "allow"}
+
+
+class ContextBuiltEvent(BaseModel):
+    event: Literal["context_built"] = "context_built"
+    working_context_page_ids: list[str] = []
+    preloaded_page_ids: list[str] = []
+    source_page_id: str | None = None
+    budget: int | None = None
+    scout_mode: str | None = None
+
+
+class Phase1LoadedEvent(BaseModel):
+    event: Literal["phase1_loaded"] = "phase1_loaded"
+    page_ids: list[str] = []
+
+
+class Phase2LoadedEvent(BaseModel):
+    event: Literal["phase2_loaded"] = "phase2_loaded"
+    page_ids: list[str] = []
+
+
+class MovesExecutedEvent(BaseModel):
+    event: Literal["moves_executed"] = "moves_executed"
+    moves: list[MoveTraceItem] = []
+    created_page_ids: list[str] = []
+
+
+class ReviewCompleteEvent(BaseModel):
+    event: Literal["review_complete"] = "review_complete"
+    remaining_fruit: float | None = None
+    confidence: float | None = None
+
+
+class LLMExchangeEvent(BaseModel):
+    event: Literal["llm_exchange"] = "llm_exchange"
+    exchange_id: str
+    phase: str
+    round: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class WarningEvent(BaseModel):
+    event: Literal["warning"] = "warning"
+    message: str
+
+
+class ErrorEvent(BaseModel):
+    event: Literal["error"] = "error"
+    message: str
+
+
+class DispatchesPlannedEvent(BaseModel):
+    event: Literal["dispatches_planned"] = "dispatches_planned"
+    dispatches: list[DispatchTraceItem] = []
+
+
+class DispatchExecutedEvent(BaseModel):
+    event: Literal["dispatch_executed"] = "dispatch_executed"
+    index: int
+    child_call_type: str
+    question_id: str
+    child_call_id: str | None = None
+
+
+TraceEvent = Annotated[
+    ContextBuiltEvent
+    | Phase1LoadedEvent
+    | Phase2LoadedEvent
+    | MovesExecutedEvent
+    | ReviewCompleteEvent
+    | LLMExchangeEvent
+    | WarningEvent
+    | ErrorEvent
+    | DispatchesPlannedEvent
+    | DispatchExecutedEvent,
+    Field(discriminator="event"),
+]

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -35,8 +34,8 @@ from differential.moves.registry import MOVES
 
 log = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from differential.tracer import CallTrace
+from differential.trace_events import LLMExchangeEvent, MovesExecutedEvent, WarningEvent
+from differential.tracer import CallTrace
 
 
 PHASE1_TASK = (
@@ -95,6 +94,44 @@ class RunCallResult:
     agent_result: AgentResult = field(default_factory=AgentResult)
 
 
+async def _save_exchanges(
+    agent_result: AgentResult,
+    call_id: str,
+    phase: str,
+    db: DB,
+    trace: "CallTrace | None" = None,
+) -> None:
+    """Save LLM exchange records from an AgentResult and record trace events."""
+    for rr in agent_result.rounds:
+        tc_data = [
+            {"name": tc.name, "input": tc.input, "result": tc.result[:500]}
+            for tc in rr.tool_calls
+        ]
+        exchange_id = await db.save_llm_exchange(
+            call_id=call_id,
+            phase=phase,
+            round_num=rr.round,
+            system_prompt=agent_result.system_prompt,
+            user_message=agent_result.user_message if rr.round == 0 else None,
+            response_text=rr.response_text,
+            tool_calls=tc_data,
+            input_tokens=rr.input_tokens,
+            output_tokens=rr.output_tokens,
+            error=rr.error,
+        )
+        if trace:
+            await trace.record(LLMExchangeEvent(
+                exchange_id=exchange_id,
+                phase=phase,
+                round=rr.round,
+                input_tokens=rr.input_tokens,
+                output_tokens=rr.output_tokens,
+            ))
+    for w in agent_result.warnings:
+        if trace:
+            await trace.record(WarningEvent(message=w))
+
+
 async def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
     """Format loaded pages as context text for phase 2."""
     parts = []
@@ -109,6 +146,8 @@ async def _run_phase1(
     system_prompt: str,
     context_text: str,
     state: MoveState,
+    db: DB,
+    trace: "CallTrace | None" = None,
 ) -> list[str]:
     """Preliminary page loading via single LLM call with load_page tool.
 
@@ -124,6 +163,8 @@ async def _run_phase1(
             tools=[load_page_tool],
             max_tokens=2048,
         )
+        if trace:
+            await _save_exchanges(result, trace.call_id, "phase1", db, trace)
         loaded_ids = []
         for tc in result.tool_calls:
             if tc.name == "load_page":
@@ -153,6 +194,7 @@ async def run_call(
     max_rounds: int | None = None,
     subtree_ids: set[str] | None = None,
     short_id_map: dict[str, str] | None = None,
+    trace: "CallTrace | None" = None,
 ) -> RunCallResult:
     """Run a workspace call with tool use.
 
@@ -179,7 +221,7 @@ async def run_call(
 
     phase1_ids: list[str] = []
     if call_type != CallType.PRIORITIZATION:
-        phase1_ids = await _run_phase1(system_prompt, context_text, state)
+        phase1_ids = await _run_phase1(system_prompt, context_text, state, db, trace=trace)
         if phase1_ids:
             extra_text = await _format_loaded_pages(phase1_ids, db)
             context_text = context_text + "\n\n## Loaded Pages\n\n" + extra_text
@@ -191,6 +233,7 @@ async def run_call(
 
     user_message = build_user_message(context_text, task_description)
 
+    phase = "prioritization" if call_type == CallType.PRIORITIZATION else "phase2"
     if call_type == CallType.PRIORITIZATION:
         agent_result = await single_call_with_tools(
             system_prompt,
@@ -206,6 +249,8 @@ async def run_call(
             max_tokens=max_tokens,
             max_rounds=max_rounds,
         )
+    if trace:
+        await _save_exchanges(agent_result, call.id, phase, db, trace)
 
     log.info(
         "run_call complete: type=%s, pages_created=%d, dispatches=%d, moves=%d",
@@ -234,21 +279,21 @@ async def extract_loaded_page_ids(result: RunCallResult, db: DB) -> list[str]:
     return loaded
 
 
-def moves_to_trace_data(
+def moves_to_trace_event(
     moves: list[Move],
     created_page_ids: list[str],
-) -> dict:
-    """Build the trace data dict for a moves_executed event."""
-    return {
-        "moves": [
+) -> MovesExecutedEvent:
+    """Build a typed MovesExecutedEvent from a list of moves."""
+    return MovesExecutedEvent(
+        moves=[
             {
                 "type": m.move_type.value,
                 **m.payload.model_dump(exclude_none=True, exclude_defaults=True),
             }
             for m in moves
         ],
-        "created_page_ids": created_page_ids,
-    }
+        created_page_ids=created_page_ids,
+    )
 
 
 REVIEW_SYSTEM_PROMPT = (

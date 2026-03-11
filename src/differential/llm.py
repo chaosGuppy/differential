@@ -68,11 +68,27 @@ class ToolCall:
 
 
 @dataclass
+class RoundRecord:
+    """Record of a single API round within an agent_loop."""
+
+    round: int
+    response_text: str
+    tool_calls: list[ToolCall]
+    input_tokens: int
+    output_tokens: int
+    error: str | None = None
+
+
+@dataclass
 class AgentResult:
     """Result of an agent_loop run."""
 
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
+    rounds: list[RoundRecord] = field(default_factory=list)
+    system_prompt: str = ""
+    user_message: str = ""
+    warnings: list[str] = field(default_factory=list)
 
 
 async def _call_api(
@@ -82,6 +98,7 @@ async def _call_api(
     messages: list[dict],
     tools: list[dict] | None = None,
     max_tokens: int = 4096,
+    warnings: list[str] | None = None,
 ) -> anthropic.types.Message:
     """Make a single Anthropic API call with retry logic."""
     kwargs: dict = {
@@ -124,10 +141,13 @@ async def _call_api(
                 raise
             wait = 2**attempt
             label = f"HTTP {status}" if status else name
-            log.warning(
-                "API temporarily unavailable (%s), retrying in %ds (attempt %d/%d)",
-                label, wait, attempt + 1, MAX_API_RETRIES,
+            msg = (
+                f"API temporarily unavailable ({label}), "
+                f"retrying in {wait}s (attempt {attempt + 1}/{MAX_API_RETRIES})"
             )
+            log.warning("%s", msg)
+            if warnings is not None:
+                warnings.append(msg)
             await asyncio.sleep(wait)
 
     raise RuntimeError("Unreachable: retry loop exhausted without raising")
@@ -176,6 +196,8 @@ async def agent_loop(
     messages: list[dict] = [{"role": "user", "content": user_message}]
     text_parts: list[str] = []
     all_tool_calls: list[ToolCall] = []
+    all_rounds: list[RoundRecord] = []
+    all_warnings: list[str] = []
     round_num = 0
 
     for round_num in range(effective_rounds + 1):
@@ -187,21 +209,33 @@ async def agent_loop(
             messages,
             tool_defs or None,
             max_tokens,
+            warnings=all_warnings,
         )
 
         # Collect text and tool_use blocks
         tool_uses: list[ToolUseBlock] = []
+        round_text_parts: list[str] = []
         for block in response.content:
             if isinstance(block, TextBlock):
                 text_parts.append(block.text)
+                round_text_parts.append(block.text)
             elif isinstance(block, ToolUseBlock):
                 tool_uses.append(block)
+
+        round_tool_calls: list[ToolCall] = []
 
         if response.stop_reason == "end_turn" or not tool_uses:
             log.debug(
                 "agent_loop ending: stop_reason=%s, tool_uses=%d, rounds_used=%d",
                 response.stop_reason, len(tool_uses), round_num + 1,
             )
+            all_rounds.append(RoundRecord(
+                round=round_num,
+                response_text="\n".join(round_text_parts),
+                tool_calls=round_tool_calls,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            ))
             break
 
         log.debug(
@@ -252,13 +286,17 @@ async def agent_loop(
                             "content": result_str,
                         }
                     )
-            all_tool_calls.append(
-                ToolCall(
-                    name=tu.name,
-                    input=tu.input,
-                    result=result_str,
-                )
-            )
+            tc = ToolCall(name=tu.name, input=tu.input, result=result_str)
+            all_tool_calls.append(tc)
+            round_tool_calls.append(tc)
+
+        all_rounds.append(RoundRecord(
+            round=round_num,
+            response_text="\n".join(round_text_parts),
+            tool_calls=round_tool_calls,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+        ))
 
         remaining = effective_rounds - round_num
         if remaining == 1:
@@ -282,6 +320,10 @@ async def agent_loop(
     return AgentResult(
         text="\n".join(text_parts),
         tool_calls=all_tool_calls,
+        rounds=all_rounds,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        warnings=all_warnings,
     )
 
 
@@ -319,8 +361,10 @@ async def single_call_with_tools(
     )
 
     messages: list[dict] = [{"role": "user", "content": user_message}]
+    all_warnings: list[str] = []
     response = await _call_api(
         client, model, system_prompt, messages, tool_defs or None, max_tokens,
+        warnings=all_warnings,
     )
 
     text_parts: list[str] = []
@@ -352,6 +396,14 @@ async def single_call_with_tools(
                 ToolCall(name=block.name, input=block.input, result=result_str)
             )
 
+    round_record = RoundRecord(
+        round=0,
+        response_text="\n".join(text_parts),
+        tool_calls=all_tool_calls,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+    )
+
     log.info(
         "single_call complete: %d tool calls, %d text chars",
         len(all_tool_calls), sum(len(t) for t in text_parts),
@@ -359,6 +411,10 @@ async def single_call_with_tools(
     return AgentResult(
         text="\n".join(text_parts),
         tool_calls=all_tool_calls,
+        rounds=[round_record],
+        system_prompt=system_prompt,
+        user_message=user_message,
+        warnings=all_warnings,
     )
 
 
