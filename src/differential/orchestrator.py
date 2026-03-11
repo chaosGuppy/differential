@@ -18,6 +18,7 @@ from differential.models import (
     ScoutMode,
     Workspace,
 )
+from differential.trace_events import DispatchExecutedEvent
 from differential.tracer import CallTrace
 
 
@@ -322,14 +323,12 @@ class Orchestrator:
                 budget_spent += p.budget
 
             if p_trace:
-                trace_data: dict = {
-                    "index": i,
-                    "child_call_type": dispatch.call_type.value,
-                    "question_id": resolved,
-                }
-                if child_call_id:
-                    trace_data["child_call_id"] = child_call_id
-                p_trace.record("dispatch_executed", trace_data)
+                await p_trace.record(DispatchExecutedEvent(
+                    index=i,
+                    child_call_type=dispatch.call_type.value,
+                    question_id=resolved,
+                    child_call_id=child_call_id,
+                ))
 
         if p_trace:
             await p_trace.save()

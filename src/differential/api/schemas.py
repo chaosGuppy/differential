@@ -1,87 +1,39 @@
 """
 Pydantic schemas for the API layer.
 
-These mirror the dataclass models but are proper Pydantic models
-for FastAPI serialization/validation.
+Composite response types and trace event envelope types. Core models
+(Page, PageLink, Call, Project) live in differential.models.
 """
 
 from datetime import datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from differential.models import (
-    CallStatus,
-    CallType,
-    ConsiderationDirection,
-    LinkType,
-    PageLayer,
-    PageType,
-    Workspace,
+from differential.models import Call, Page, PageLink
+from differential.trace_events import (
+    ContextBuiltEvent,
+    DispatchesPlannedEvent,
+    DispatchExecutedEvent,
+    ErrorEvent,
+    LLMExchangeEvent,
+    MovesExecutedEvent,
+    Phase1LoadedEvent,
+    Phase2LoadedEvent,
+    ReviewCompleteEvent,
+    WarningEvent,
 )
 
 
-class ProjectOut(BaseModel):
-    id: str
-    name: str
-    created_at: datetime
-
-
-class PageOut(BaseModel):
-    id: str
-    page_type: PageType
-    layer: PageLayer
-    workspace: Workspace
-    content: str
-    summary: str
-    project_id: str
-    epistemic_status: float
-    epistemic_type: str
-    provenance_model: str
-    provenance_call_type: str
-    provenance_call_id: str
-    created_at: datetime
-    superseded_by: str | None
-    is_superseded: bool
-    extra: dict
-
-
-class PageLinkOut(BaseModel):
-    id: str
-    from_page_id: str
-    to_page_id: str
-    link_type: LinkType
-    direction: ConsiderationDirection | None
-    strength: float
-    reasoning: str
-    created_at: datetime
-
-
-class CallOut(BaseModel):
-    id: str
-    call_type: CallType
-    workspace: Workspace
-    project_id: str
-    status: CallStatus
-    parent_call_id: str | None
-    scope_page_id: str | None
-    budget_allocated: int | None
-    budget_used: int
-    context_page_ids: list[str]
-    result_summary: str
-    review_json: dict
-    created_at: datetime
-    completed_at: datetime | None
-
-
 class ConsiderationOut(BaseModel):
-    page: PageOut
-    link: PageLinkOut
+    page: Page
+    link: PageLink
 
 
 class QuestionTreeOut(BaseModel):
-    question: PageOut
+    question: Page
     considerations: list[ConsiderationOut]
-    judgements: list[PageOut]
+    judgements: list[Page]
     child_questions: list['QuestionTreeOut']
 
 
@@ -90,11 +42,64 @@ class PageCountsOut(BaseModel):
     judgements: int
 
 
-class TraceEventOut(BaseModel):
-    event: str
+class _TraceEnvelopeMixin(BaseModel):
     ts: str
     call_id: str
-    data: dict = {}
+
+
+class ContextBuiltEventOut(ContextBuiltEvent, _TraceEnvelopeMixin):
+    event: Literal["context_built"]
+
+
+class Phase1LoadedEventOut(Phase1LoadedEvent, _TraceEnvelopeMixin):
+    event: Literal["phase1_loaded"]
+
+
+class Phase2LoadedEventOut(Phase2LoadedEvent, _TraceEnvelopeMixin):
+    event: Literal["phase2_loaded"]
+
+
+class MovesExecutedEventOut(MovesExecutedEvent, _TraceEnvelopeMixin):
+    event: Literal["moves_executed"]
+
+
+class ReviewCompleteEventOut(ReviewCompleteEvent, _TraceEnvelopeMixin):
+    event: Literal["review_complete"]
+
+
+class LLMExchangeEventOut(LLMExchangeEvent, _TraceEnvelopeMixin):
+    event: Literal["llm_exchange"]
+
+
+class WarningEventOut(WarningEvent, _TraceEnvelopeMixin):
+    event: Literal["warning"]
+
+
+class ErrorEventOut(ErrorEvent, _TraceEnvelopeMixin):
+    event: Literal["error"]
+
+
+class DispatchesPlannedEventOut(DispatchesPlannedEvent, _TraceEnvelopeMixin):
+    event: Literal["dispatches_planned"]
+
+
+class DispatchExecutedEventOut(DispatchExecutedEvent, _TraceEnvelopeMixin):
+    event: Literal["dispatch_executed"]
+
+
+TraceEventOut = Annotated[
+    ContextBuiltEventOut
+    | Phase1LoadedEventOut
+    | Phase2LoadedEventOut
+    | MovesExecutedEventOut
+    | ReviewCompleteEventOut
+    | LLMExchangeEventOut
+    | WarningEventOut
+    | ErrorEventOut
+    | DispatchesPlannedEventOut
+    | DispatchExecutedEventOut,
+    Field(discriminator="event"),
+]
 
 
 class LLMExchangeSummaryOut(BaseModel):
@@ -123,14 +128,14 @@ class LLMExchangeOut(BaseModel):
 
 
 class CallTraceOut(BaseModel):
-    call: CallOut
+    call: Call
     events: list[TraceEventOut]
     children: list['CallTraceOut']
 
 
 class RunTraceOut(BaseModel):
     run_id: str
-    question: PageOut | None
+    question: Page | None
     root_calls: list[CallTraceOut]
 
 

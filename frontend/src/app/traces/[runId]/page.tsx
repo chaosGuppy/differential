@@ -1,47 +1,10 @@
 import Link from "next/link";
+import type { RunTraceOut } from "@/api/types.gen";
 import { TraceViewer } from "./trace-viewer";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:8000";
 
-interface TraceEvent {
-  event: string;
-  ts: string;
-  call_id: string;
-  data: Record<string, unknown>;
-}
-
-interface CallOut {
-  id: string;
-  call_type: string;
-  status: string;
-  parent_call_id: string | null;
-  scope_page_id: string | null;
-  budget_allocated: number | null;
-  budget_used: number;
-  result_summary: string;
-  review_json: Record<string, unknown>;
-  created_at: string;
-  completed_at: string | null;
-}
-
-interface CallTrace {
-  call: CallOut;
-  events: TraceEvent[];
-  children: CallTrace[];
-}
-
-interface RunTrace {
-  run_id: string;
-  question: {
-    id: string;
-    summary: string;
-    content: string;
-    project_id: string;
-  } | null;
-  root_calls: CallTrace[];
-}
-
-async function getRunTrace(runId: string): Promise<RunTrace | null> {
+async function getRunTrace(runId: string): Promise<RunTraceOut | null> {
   const res = await fetch(`${API_BASE}/api/runs/${runId}/trace`, {
     cache: "no-store",
   });

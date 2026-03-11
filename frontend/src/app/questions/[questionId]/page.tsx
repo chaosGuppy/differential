@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { QuestionTreeOut, ConsiderationOut, PageOut } from "@/api";
+import type { QuestionTreeOut, ConsiderationOut, Page } from "@/api";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:8000";
 
@@ -51,7 +51,7 @@ function ConsiderationCard({ c }: { c: ConsiderationOut }) {
   );
 }
 
-function JudgementCard({ j }: { j: PageOut }) {
+function JudgementCard({ j }: { j: Page }) {
   return (
     <div className="border border-amber-300 rounded p-3 bg-amber-50 dark:bg-amber-950">
       <p className="text-sm font-medium">{j.summary}</p>

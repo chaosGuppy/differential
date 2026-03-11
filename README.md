@@ -14,8 +14,8 @@
 # macOS (Homebrew)
 brew install supabase/tap/supabase
 
-# npm
-npm install -g supabase
+# pnpm
+pnpm add -g supabase
 
 # Or see https://supabase.com/docs/guides/local-development/cli/getting-started
 ```
@@ -151,6 +151,20 @@ The `--trace` flag generates a self-contained HTML file in `pages/traces/` showi
 For prioritization calls, dispatches are shown as clickable links that jump to the child call's trace. Page IDs render as colored chips with summaries; click to expand and see full content.
 
 For PDF ingestion, install the optional dependency: `uv sync --extra pdf`
+
+## Frontend
+
+The frontend is a Next.js app that reads from a FastAPI server.
+
+```bash
+# Start the API server (requires local Supabase to be running)
+uv run uvicorn differential.api.app:app --reload
+
+# Start the frontend dev server
+cd frontend && pnpm dev
+```
+
+To point the API at the production database, set `DIFFERENTIAL_PROD_DB=1` before starting uvicorn.
 
 ## Development
 

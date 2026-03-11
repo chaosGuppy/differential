@@ -2,10 +2,11 @@
 
 import logging
 
-from differential.calls.common import complete_call, moves_to_trace_data, run_call
+from differential.calls.common import complete_call, moves_to_trace_event, run_call
 from differential.context import build_prioritization_context, collect_subtree_ids
 from differential.database import DB
 from differential.models import Call, CallType, MoveType
+from differential.trace_events import ContextBuiltEvent, DispatchesPlannedEvent
 from differential.tracer import CallTrace
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ async def run_prioritization(
         db, scope_question_id=scope_question_id
     )
     subtree_ids = await collect_subtree_ids(scope_question_id, db)
-    trace.record("context_built", {"budget": budget})
+    await trace.record(ContextBuiltEvent(budget=budget))
 
     task = (
         f"You have a budget of **{budget} research calls** to allocate on this question.\n\n"
@@ -54,21 +55,16 @@ async def run_prioritization(
         trace=trace,
     )
 
-    trace.record(
-        "dispatches_planned",
-        {
-            "dispatches": [
-                {
-                    "call_type": d.call_type.value,
-                    **d.payload.model_dump(exclude_defaults=True),
-                }
-                for d in result.dispatches
-            ],
-        },
-    )
-    trace.record(
-        "moves_executed", moves_to_trace_data(result.moves, result.created_page_ids)
-    )
+    await trace.record(DispatchesPlannedEvent(
+        dispatches=[
+            {
+                "call_type": d.call_type.value,
+                **d.payload.model_dump(exclude_defaults=True),
+            }
+            for d in result.dispatches
+        ],
+    ))
+    await trace.record(moves_to_trace_event(result.moves, result.created_page_ids))
 
     summary = {
         "dispatches": result.dispatches,

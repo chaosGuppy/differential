@@ -2,34 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import type {
+  Call,
+  CallTraceOut,
+  DispatchExecutedEventOut,
+  DispatchesPlannedEventOut,
+} from "@/api/types.gen";
 import { LLMExchangeDetail } from "./llm-exchange-detail";
 
-interface TraceEvent {
-  event: string;
-  ts: string;
-  call_id: string;
-  data: Record<string, unknown>;
-}
-
-interface CallOut {
-  id: string;
-  call_type: string;
-  status: string;
-  parent_call_id: string | null;
-  scope_page_id: string | null;
-  budget_allocated: number | null;
-  budget_used: number;
-  result_summary: string;
-  review_json: Record<string, unknown>;
-  created_at: string;
-  completed_at: string | null;
-}
-
-interface CallTrace {
-  call: CallOut;
-  events: TraceEvent[];
-  children: CallTrace[];
-}
+type TraceEvent = CallTraceOut["events"][number];
 
 const CALL_TYPE_COLORS: Record<string, string> = {
   scout: "bg-blue-100 text-blue-800",
@@ -58,7 +39,7 @@ function formatTime(ts: string): string {
   }
 }
 
-function getDuration(call: CallOut): string | null {
+function getDuration(call: Call): string | null {
   if (!call.created_at || !call.completed_at) return null;
   const start = new Date(call.created_at).getTime();
   const end = new Date(call.completed_at).getTime();
@@ -112,7 +93,6 @@ function MoveBadge({ moveType }: { moveType: string }) {
 }
 
 function EventSection({ event }: { event: TraceEvent }) {
-  const data = event.data || {};
   const warningBorder =
     event.event === "warning"
       ? "border-l-2 border-yellow-400 pl-2"
@@ -133,46 +113,46 @@ function EventSection({ event }: { event: TraceEvent }) {
 
       {event.event === "context_built" && (
         <div className="ml-2 text-xs space-y-1">
-          {(data.working_context_page_ids as string[])?.length > 0 && (
+          {(event.working_context_page_ids ?? []).length > 0 && (
             <div>
               <span className="text-gray-500 font-medium">Working context: </span>
-              <PageList pageIds={data.working_context_page_ids as string[]} />
+              <PageList pageIds={event.working_context_page_ids ?? []} />
             </div>
           )}
-          {(data.preloaded_page_ids as string[])?.length > 0 && (
+          {(event.preloaded_page_ids ?? []).length > 0 && (
             <div>
               <span className="text-gray-500 font-medium">Preloaded: </span>
-              <PageList pageIds={data.preloaded_page_ids as string[]} />
+              <PageList pageIds={event.preloaded_page_ids ?? []} />
             </div>
           )}
-          {data.budget != null && (
-            <div className="text-gray-500">Budget: {String(data.budget)}</div>
+          {event.budget != null && (
+            <div className="text-gray-500">Budget: {event.budget}</div>
           )}
         </div>
       )}
 
       {(event.event === "phase1_loaded" || event.event === "phase2_loaded") && (
         <div className="ml-2 text-xs">
-          <PageList pageIds={(data.page_ids as string[]) || []} />
+          <PageList pageIds={event.page_ids ?? []} />
         </div>
       )}
 
       {event.event === "moves_executed" && (
         <div className="ml-2 text-xs space-y-1">
-          {((data.moves as Array<Record<string, unknown>>) || [])
+          {(event.moves ?? [])
             .filter((m) => m.type !== "LOAD_PAGE")
             .map((m, i) => (
               <div key={i} className="flex items-baseline gap-1.5">
-                <MoveBadge moveType={m.type as string} />
+                <MoveBadge moveType={m.type} />
                 <span className="text-gray-600">
-                  {(m.summary as string) || ""}
+                  {m.summary || ""}
                 </span>
               </div>
             ))}
-          {(data.created_page_ids as string[])?.length > 0 && (
+          {(event.created_page_ids ?? []).length > 0 && (
             <div>
               <span className="text-gray-500 font-medium">Created: </span>
-              <PageList pageIds={data.created_page_ids as string[]} />
+              <PageList pageIds={event.created_page_ids ?? []} />
             </div>
           )}
         </div>
@@ -180,18 +160,18 @@ function EventSection({ event }: { event: TraceEvent }) {
 
       {event.event === "review_complete" && (
         <div className="ml-2 text-xs text-gray-600">
-          fruit={String(data.remaining_fruit)}, confidence=
-          {String(data.confidence)}
+          fruit={String(event.remaining_fruit)}, confidence=
+          {String(event.confidence)}
         </div>
       )}
 
       {event.event === "llm_exchange" && (
         <div className="ml-2 text-xs text-gray-500">
-          {data.phase as string} round {String(data.round)}
-          {data.input_tokens != null && (
+          {event.phase} round {event.round}
+          {event.input_tokens != null && (
             <span>
               {" "}
-              ({String(data.input_tokens)}/{String(data.output_tokens)} tokens)
+              ({event.input_tokens}/{event.output_tokens} tokens)
             </span>
           )}
         </div>
@@ -199,26 +179,26 @@ function EventSection({ event }: { event: TraceEvent }) {
 
       {event.event === "warning" && (
         <div className="ml-2 text-xs text-yellow-700">
-          {data.message as string}
+          {event.message}
         </div>
       )}
 
       {event.event === "error" && (
         <div className="ml-2 text-xs text-red-700">
-          {data.message as string}
+          {event.message}
         </div>
       )}
 
       {event.event === "dispatches_planned" && (
         <div className="ml-2 text-xs space-y-0.5">
-          {((data.dispatches as Array<Record<string, unknown>>) || []).map(
+          {(event.dispatches ?? []).map(
             (d, i) => (
               <div key={i} className="flex items-baseline gap-1.5">
                 <span className="text-gray-400">{i + 1}.</span>
                 <span
-                  className={`text-xs font-semibold uppercase px-1.5 py-0.5 rounded ${CALL_TYPE_COLORS[d.call_type as string] || "bg-gray-100"}`}
+                  className={`text-xs font-semibold uppercase px-1.5 py-0.5 rounded ${CALL_TYPE_COLORS[d.call_type] || "bg-gray-100"}`}
                 >
-                  {d.call_type as string}
+                  {d.call_type}
                 </span>
                 {d.reason ? (
                   <span className="text-gray-500">
@@ -238,7 +218,7 @@ export function CallNode({
   trace,
   depth,
 }: {
-  trace: CallTrace;
+  trace: CallTraceOut;
   depth: number;
 }) {
   const [isOpen, setIsOpen] = useState(depth <= 1);
@@ -254,13 +234,12 @@ export function CallNode({
   const displayableEvents = events.filter((e) => !skipEvents.has(e.event));
 
   const dispatchEvents = events.filter(
-    (e) => e.event === "dispatches_planned",
+    (e): e is DispatchesPlannedEventOut => e.event === "dispatches_planned",
   );
-  const executedMap = new Map<number, Record<string, unknown>>();
+  const executedMap = new Map<number, DispatchExecutedEventOut>();
   for (const e of events) {
     if (e.event === "dispatch_executed") {
-      const idx = e.data?.index as number | undefined;
-      if (idx != null) executedMap.set(idx, e.data);
+      executedMap.set(e.index, e);
     }
   }
 
@@ -317,13 +296,9 @@ export function CallNode({
             <div className="bg-gray-50 rounded p-2 text-xs">
               <strong className="text-gray-600">Dispatches:</strong>
               <ol className="list-decimal ml-4 mt-1 space-y-0.5">
-                {(
-                  (dispatchEvents[0]?.data?.dispatches as Array<
-                    Record<string, unknown>
-                  >) || []
-                ).map((d, i) => {
+                {(dispatchEvents[0]?.dispatches ?? []).map((d, i) => {
                   const ex = executedMap.get(i);
-                  const childCallId = ex?.child_call_id as string | undefined;
+                  const childCallId = ex?.child_call_id;
                   return (
                     <li key={i}>
                       {childCallId ? (
@@ -340,16 +315,16 @@ export function CallNode({
                           }}
                         >
                           <span
-                            className={`font-semibold uppercase px-1 rounded ${CALL_TYPE_COLORS[d.call_type as string] || ""}`}
+                            className={`font-semibold uppercase px-1 rounded ${CALL_TYPE_COLORS[d.call_type] || ""}`}
                           >
-                            {d.call_type as string}
+                            {d.call_type}
                           </span>
                         </a>
                       ) : (
                         <span
-                          className={`font-semibold uppercase px-1 rounded opacity-50 ${CALL_TYPE_COLORS[d.call_type as string] || ""}`}
+                          className={`font-semibold uppercase px-1 rounded opacity-50 ${CALL_TYPE_COLORS[d.call_type] || ""}`}
                         >
-                          {d.call_type as string}
+                          {d.call_type}
                           {!ex && " (skipped)"}
                         </span>
                       )}

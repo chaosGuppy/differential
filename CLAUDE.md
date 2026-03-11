@@ -76,7 +76,7 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 **API** (`src/differential/api/`): FastAPI read-only API for the frontend. `schemas.py` defines Pydantic response models, `app.py` defines endpoints. Run with `uv run uvicorn differential.api.app:app --reload`.
 
-**Frontend** (`frontend/`): Next.js TypeScript app with Tailwind. Run with `cd frontend && npm run dev`. TypeScript types in `frontend/src/api/` are auto-generated from the API's OpenAPI schema — **never create or edit these files by hand**. When API schemas change, regenerate with `./scripts/generate-api-types.sh` (or `cd frontend && npm run generate-api`). This is the only mechanism for sharing types between backend and frontend; do not manually duplicate type definitions.
+**Frontend** (`frontend/`): Next.js TypeScript app with Tailwind. Uses pnpm. Run with `cd frontend && pnpm dev`. TypeScript types in `frontend/src/api/` are auto-generated from the API's OpenAPI schema — **never create or edit these files by hand**. When API schemas change, regenerate with `./scripts/generate-api-types.sh` (or `cd frontend && pnpm generate-api`). This is the only mechanism for sharing types between backend and frontend; do not manually duplicate type definitions.
 
 **Outputs:**
 - `pages/research/` — markdown files per page

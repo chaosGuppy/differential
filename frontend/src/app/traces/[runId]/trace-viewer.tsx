@@ -2,54 +2,19 @@
 
 import { useEffect, useReducer } from "react";
 import { createClient } from "@supabase/supabase-js";
+import type { CallTraceOut, RunTraceOut } from "@/api/types.gen";
 import { CallNode } from "./call-node";
 
-interface TraceEvent {
-  event: string;
-  ts: string;
-  call_id: string;
-  data: Record<string, unknown>;
-}
-
-interface CallOut {
-  id: string;
-  call_type: string;
-  status: string;
-  parent_call_id: string | null;
-  scope_page_id: string | null;
-  budget_allocated: number | null;
-  budget_used: number;
-  result_summary: string;
-  review_json: Record<string, unknown>;
-  created_at: string;
-  completed_at: string | null;
-}
-
-interface CallTrace {
-  call: CallOut;
-  events: TraceEvent[];
-  children: CallTrace[];
-}
-
-interface RunTrace {
-  run_id: string;
-  question: {
-    id: string;
-    summary: string;
-    content: string;
-    project_id: string;
-  } | null;
-  root_calls: CallTrace[];
-}
+type TraceEvent = CallTraceOut["events"][number];
 
 type Action =
-  | { type: "SET_TRACE"; trace: RunTrace }
+  | { type: "SET_TRACE"; trace: RunTraceOut }
   | { type: "ADD_EVENT"; event: TraceEvent };
 
 function findAndAddEvent(
-  nodes: CallTrace[],
+  nodes: CallTraceOut[],
   event: TraceEvent,
-): CallTrace[] {
+): CallTraceOut[] {
   return nodes.map((node) => {
     if (node.call.id === event.call_id) {
       const isDuplicate = node.events.some(
@@ -66,7 +31,7 @@ function findAndAddEvent(
   });
 }
 
-function reducer(state: RunTrace, action: Action): RunTrace {
+function reducer(state: RunTraceOut, action: Action): RunTraceOut {
   switch (action.type) {
     case "SET_TRACE":
       return action.trace;
@@ -83,7 +48,7 @@ export function TraceViewer({
   runId,
   realtimeConfig,
 }: {
-  initialTrace: RunTrace;
+  initialTrace: RunTraceOut;
   runId: string;
   realtimeConfig: { url: string; anon_key: string } | null;
 }) {

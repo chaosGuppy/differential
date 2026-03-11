@@ -8,13 +8,19 @@ from differential.calls.common import (
     extract_loaded_page_ids,
     format_moves_for_review,
     log_page_ratings,
-    moves_to_trace_data,
+    moves_to_trace_event,
     run_call,
     run_closing_review,
 )
 from differential.context import build_call_context
 from differential.database import DB
 from differential.models import Call, CallStatus, CallType, ScoutMode
+from differential.trace_events import (
+    ContextBuiltEvent,
+    Phase1LoadedEvent,
+    Phase2LoadedEvent,
+    ReviewCompleteEvent,
+)
 from differential.tracer import CallTrace
 
 log = logging.getLogger(__name__)
@@ -52,14 +58,11 @@ async def run_scout(
     context_text, _, working_page_ids = await build_call_context(
         question_id, db, extra_page_ids=preloaded
     )
-    trace.record(
-        "context_built",
-        {
-            "working_context_page_ids": working_page_ids,
-            "preloaded_page_ids": preloaded,
-            "scout_mode": mode.value,
-        },
-    )
+    await trace.record(ContextBuiltEvent(
+        working_context_page_ids=working_page_ids,
+        preloaded_page_ids=preloaded,
+        scout_mode=mode.value,
+    ))
 
     mode_instruction = _CONCRETE_INSTRUCTION if mode == ScoutMode.CONCRETE else ''
     task = (
@@ -70,13 +73,11 @@ async def run_scout(
     await db.update_call_status(call.id, CallStatus.RUNNING)
     result = await run_call(CallType.SCOUT, task, context_text, call, db, trace=trace)
     if result.phase1_page_ids:
-        trace.record("phase1_loaded", {"page_ids": result.phase1_page_ids})
+        await trace.record(Phase1LoadedEvent(page_ids=result.phase1_page_ids))
     phase2_loaded = await extract_loaded_page_ids(result, db)
     if phase2_loaded:
-        trace.record("phase2_loaded", {"page_ids": phase2_loaded})
-    trace.record(
-        "moves_executed", moves_to_trace_data(result.moves, result.created_page_ids)
-    )
+        await trace.record(Phase2LoadedEvent(page_ids=phase2_loaded))
+    await trace.record(moves_to_trace_event(result.moves, result.created_page_ids))
 
     all_loaded_ids = list(
         dict.fromkeys(preloaded + result.phase1_page_ids + phase2_loaded)
@@ -91,13 +92,10 @@ async def run_scout(
             remaining_fruit, review.get("confidence_in_output", "?"),
         )
         await log_page_ratings(review, db)
-        trace.record(
-            "review_complete",
-            {
-                "remaining_fruit": remaining_fruit,
-                "confidence": review.get("confidence_in_output"),
-            },
-        )
+        await trace.record(ReviewCompleteEvent(
+            remaining_fruit=remaining_fruit,
+            confidence=review.get("confidence_in_output"),
+        ))
 
     call.review_json = review or {}
     log.info(

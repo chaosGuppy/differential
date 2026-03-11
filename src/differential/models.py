@@ -2,12 +2,21 @@
 Data models for the research workspace.
 """
 
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+def _all_fields_required(schema: dict) -> None:
+    """Mark all fields as required in JSON schema.
+
+    Models used as API response types need this because fields with defaults
+    (like ``id`` or ``created_at``) are always populated in responses, but
+    Pydantic marks them optional in the schema by default.
+    """
+    schema['required'] = list(schema.get('properties', {}).keys())
 
 
 class PageType(str, Enum):
@@ -124,73 +133,71 @@ class PrioritizationDispatchPayload(BaseDispatchPayload):
     budget: int = Field(description="Budget to allocate for the sub-investigation")
 
 
-@dataclass
-class Move:
+class Move(BaseModel):
     move_type: MoveType
     payload: BaseModel
 
 
-@dataclass
-class Dispatch:
+class Dispatch(BaseModel):
     call_type: CallType
     payload: BaseDispatchPayload
 
 
-@dataclass
-class Project:
+class Project(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_all_fields_required)
     name: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-@dataclass
-class Page:
+class Page(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_all_fields_required)
     page_type: PageType
     layer: PageLayer
     workspace: Workspace
     content: str
     summary: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str = ""
     epistemic_status: float = 2.5  # 0-5 subjective confidence
     epistemic_type: str = ""  # description of uncertainty type
     provenance_model: str = ""
     provenance_call_type: str = ""
     provenance_call_id: str = ""
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     superseded_by: str | None = None
     is_superseded: bool = False
-    extra: dict = field(default_factory=dict)
+    extra: dict = Field(default_factory=dict)
 
     def is_active(self) -> bool:
         return not self.is_superseded
 
 
-@dataclass
-class PageLink:
+class PageLink(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_all_fields_required)
     from_page_id: str
     to_page_id: str
     link_type: LinkType
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     direction: ConsiderationDirection | None = None  # for CONSIDERATION links
     strength: float = 2.5  # 0-5
     reasoning: str = ""
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-@dataclass
-class Call:
+class Call(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_all_fields_required)
     call_type: CallType
     workspace: Workspace
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     project_id: str = ""
     status: CallStatus = CallStatus.PENDING
     parent_call_id: str | None = None
     scope_page_id: str | None = None  # question/consideration this call is about
     budget_allocated: int | None = None
     budget_used: int = 0
-    context_page_ids: list = field(default_factory=list)
+    context_page_ids: list[str] = Field(default_factory=list)
     result_summary: str = ""
-    review_json: dict = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    review_json: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None

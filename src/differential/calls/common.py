@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -34,8 +33,8 @@ from differential.moves.registry import MOVES
 
 log = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from differential.tracer import CallTrace
+from differential.trace_events import LLMExchangeEvent, MovesExecutedEvent, WarningEvent
+from differential.tracer import CallTrace
 
 
 PHASE1_TASK = (
@@ -120,16 +119,16 @@ async def _save_exchanges(
             error=rr.error,
         )
         if trace:
-            trace.record("llm_exchange", {
-                "exchange_id": exchange_id,
-                "phase": phase,
-                "round": rr.round,
-                "input_tokens": rr.input_tokens,
-                "output_tokens": rr.output_tokens,
-            })
+            await trace.record(LLMExchangeEvent(
+                exchange_id=exchange_id,
+                phase=phase,
+                round=rr.round,
+                input_tokens=rr.input_tokens,
+                output_tokens=rr.output_tokens,
+            ))
     for w in agent_result.warnings:
         if trace:
-            trace.record("warning", {"message": w})
+            await trace.record(WarningEvent(message=w))
 
 
 async def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
@@ -276,21 +275,21 @@ async def extract_loaded_page_ids(result: RunCallResult, db: DB) -> list[str]:
     return loaded
 
 
-def moves_to_trace_data(
+def moves_to_trace_event(
     moves: list[Move],
     created_page_ids: list[str],
-) -> dict:
-    """Build the trace data dict for a moves_executed event."""
-    return {
-        "moves": [
+) -> MovesExecutedEvent:
+    """Build a typed MovesExecutedEvent from a list of moves."""
+    return MovesExecutedEvent(
+        moves=[
             {
                 "type": m.move_type.value,
                 **m.payload.model_dump(exclude_none=True, exclude_defaults=True),
             }
             for m in moves
         ],
-        "created_page_ids": created_page_ids,
-    }
+        created_page_ids=created_page_ids,
+    )
 
 
 REVIEW_SYSTEM_PROMPT = (

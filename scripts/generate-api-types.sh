@@ -15,6 +15,6 @@ with open('frontend/openapi.json', 'w') as f:
 
 echo "Generating TypeScript types..."
 cd "$REPO_ROOT/frontend"
-npx openapi-ts
+pnpm exec openapi-ts
 
 echo "Done."

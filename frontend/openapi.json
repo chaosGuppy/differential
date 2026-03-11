@@ -17,7 +17,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ProjectOut"
+                    "$ref": "#/components/schemas/Project"
                   },
                   "type": "array",
                   "title": "Response List Projects Api Projects Get"
@@ -93,7 +93,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PageOut"
+                    "$ref": "#/components/schemas/Page"
                   },
                   "title": "Response List Pages Api Projects  Project Id  Pages Get"
                 }
@@ -134,7 +134,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PageOut"
+                  "$ref": "#/components/schemas/Page"
                 }
               }
             }
@@ -175,7 +175,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PageLinkOut"
+                    "$ref": "#/components/schemas/PageLink"
                   },
                   "title": "Response Get Links From Api Pages  Page Id  Links From Get"
                 }
@@ -218,7 +218,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PageLinkOut"
+                    "$ref": "#/components/schemas/PageLink"
                   },
                   "title": "Response Get Links To Api Pages  Page Id  Links To Get"
                 }
@@ -309,7 +309,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PageOut"
+                    "$ref": "#/components/schemas/Page"
                   },
                   "title": "Response List Root Questions Api Projects  Project Id  Questions Get"
                 }
@@ -419,7 +419,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/CallOut"
+                    "$ref": "#/components/schemas/Call"
                   },
                   "title": "Response List Calls Api Projects  Project Id  Calls Get"
                 }
@@ -460,7 +460,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CallOut"
+                  "$ref": "#/components/schemas/Call"
                 }
               }
             }
@@ -501,7 +501,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/CallOut"
+                    "$ref": "#/components/schemas/Call"
                   },
                   "title": "Response Get Child Calls Api Calls  Call Id  Children Get"
                 }
@@ -745,24 +745,26 @@
   },
   "components": {
     "schemas": {
-      "CallOut": {
+      "Call": {
         "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
           "call_type": {
             "$ref": "#/components/schemas/CallType"
           },
           "workspace": {
             "$ref": "#/components/schemas/Workspace"
           },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
           "project_id": {
             "type": "string",
-            "title": "Project Id"
+            "title": "Project Id",
+            "default": ""
           },
           "status": {
-            "$ref": "#/components/schemas/CallStatus"
+            "$ref": "#/components/schemas/CallStatus",
+            "default": "pending"
           },
           "parent_call_id": {
             "anyOf": [
@@ -799,7 +801,8 @@
           },
           "budget_used": {
             "type": "integer",
-            "title": "Budget Used"
+            "title": "Budget Used",
+            "default": 0
           },
           "context_page_ids": {
             "items": {
@@ -810,7 +813,8 @@
           },
           "result_summary": {
             "type": "string",
-            "title": "Result Summary"
+            "title": "Result Summary",
+            "default": ""
           },
           "review_json": {
             "additionalProperties": true,
@@ -837,9 +841,9 @@
         },
         "type": "object",
         "required": [
-          "id",
           "call_type",
           "workspace",
+          "id",
           "project_id",
           "status",
           "parent_call_id",
@@ -852,7 +856,7 @@
           "created_at",
           "completed_at"
         ],
-        "title": "CallOut"
+        "title": "Call"
       },
       "CallStatus": {
         "type": "string",
@@ -867,11 +871,57 @@
       "CallTraceOut": {
         "properties": {
           "call": {
-            "$ref": "#/components/schemas/CallOut"
+            "$ref": "#/components/schemas/Call"
           },
           "events": {
             "items": {
-              "$ref": "#/components/schemas/TraceEventOut"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ContextBuiltEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/Phase1LoadedEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/Phase2LoadedEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/MovesExecutedEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ReviewCompleteEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/LLMExchangeEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/WarningEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/DispatchesPlannedEventOut"
+                },
+                {
+                  "$ref": "#/components/schemas/DispatchExecutedEventOut"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "event",
+                "mapping": {
+                  "context_built": "#/components/schemas/ContextBuiltEventOut",
+                  "dispatch_executed": "#/components/schemas/DispatchExecutedEventOut",
+                  "dispatches_planned": "#/components/schemas/DispatchesPlannedEventOut",
+                  "error": "#/components/schemas/ErrorEventOut",
+                  "llm_exchange": "#/components/schemas/LLMExchangeEventOut",
+                  "moves_executed": "#/components/schemas/MovesExecutedEventOut",
+                  "phase1_loaded": "#/components/schemas/Phase1LoadedEventOut",
+                  "phase2_loaded": "#/components/schemas/Phase2LoadedEventOut",
+                  "review_complete": "#/components/schemas/ReviewCompleteEventOut",
+                  "warning": "#/components/schemas/WarningEventOut"
+                }
+              }
             },
             "type": "array",
             "title": "Events"
@@ -916,10 +966,10 @@
       "ConsiderationOut": {
         "properties": {
           "page": {
-            "$ref": "#/components/schemas/PageOut"
+            "$ref": "#/components/schemas/Page"
           },
           "link": {
-            "$ref": "#/components/schemas/PageLinkOut"
+            "$ref": "#/components/schemas/PageLink"
           }
         },
         "type": "object",
@@ -928,6 +978,204 @@
           "link"
         ],
         "title": "ConsiderationOut"
+      },
+      "ContextBuiltEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "context_built",
+            "title": "Event"
+          },
+          "working_context_page_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Working Context Page Ids",
+            "default": []
+          },
+          "preloaded_page_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preloaded Page Ids",
+            "default": []
+          },
+          "source_page_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Page Id"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          },
+          "scout_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scout Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "ContextBuiltEventOut"
+      },
+      "DispatchExecutedEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "dispatch_executed",
+            "title": "Event"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "child_call_type": {
+            "type": "string",
+            "title": "Child Call Type"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "child_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Call Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event",
+          "index",
+          "child_call_type",
+          "question_id"
+        ],
+        "title": "DispatchExecutedEventOut"
+      },
+      "DispatchTraceItem": {
+        "properties": {
+          "call_type": {
+            "type": "string",
+            "title": "Call Type"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "call_type"
+        ],
+        "title": "DispatchTraceItem"
+      },
+      "DispatchesPlannedEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "dispatches_planned",
+            "title": "Event"
+          },
+          "dispatches": {
+            "items": {
+              "$ref": "#/components/schemas/DispatchTraceItem"
+            },
+            "type": "array",
+            "title": "Dispatches",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "DispatchesPlannedEventOut"
+      },
+      "ErrorEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "error",
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event",
+          "message"
+        ],
+        "title": "ErrorEventOut"
       },
       "HTTPValidationError": {
         "properties": {
@@ -941,6 +1189,67 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LLMExchangeEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "llm_exchange",
+            "title": "Event"
+          },
+          "exchange_id": {
+            "type": "string",
+            "title": "Exchange Id"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event",
+          "exchange_id",
+          "phase",
+          "round"
+        ],
+        "title": "LLMExchangeEventOut"
       },
       "LLMExchangeOut": {
         "properties": {
@@ -1132,6 +1441,166 @@
         ],
         "title": "LinkType"
       },
+      "MoveTraceItem": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "MoveTraceItem"
+      },
+      "MovesExecutedEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "moves_executed",
+            "title": "Event"
+          },
+          "moves": {
+            "items": {
+              "$ref": "#/components/schemas/MoveTraceItem"
+            },
+            "type": "array",
+            "title": "Moves",
+            "default": []
+          },
+          "created_page_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Created Page Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "MovesExecutedEventOut"
+      },
+      "Page": {
+        "properties": {
+          "page_type": {
+            "$ref": "#/components/schemas/PageType"
+          },
+          "layer": {
+            "$ref": "#/components/schemas/PageLayer"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "default": ""
+          },
+          "epistemic_status": {
+            "type": "number",
+            "title": "Epistemic Status",
+            "default": 2.5
+          },
+          "epistemic_type": {
+            "type": "string",
+            "title": "Epistemic Type",
+            "default": ""
+          },
+          "provenance_model": {
+            "type": "string",
+            "title": "Provenance Model",
+            "default": ""
+          },
+          "provenance_call_type": {
+            "type": "string",
+            "title": "Provenance Call Type",
+            "default": ""
+          },
+          "provenance_call_id": {
+            "type": "string",
+            "title": "Provenance Call Id",
+            "default": ""
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
+          },
+          "is_superseded": {
+            "type": "boolean",
+            "title": "Is Superseded",
+            "default": false
+          },
+          "extra": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Extra"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_type",
+          "layer",
+          "workspace",
+          "content",
+          "summary",
+          "id",
+          "project_id",
+          "epistemic_status",
+          "epistemic_type",
+          "provenance_model",
+          "provenance_call_type",
+          "provenance_call_id",
+          "created_at",
+          "superseded_by",
+          "is_superseded",
+          "extra"
+        ],
+        "title": "Page"
+      },
       "PageCountsOut": {
         "properties": {
           "considerations": {
@@ -1158,12 +1627,8 @@
         ],
         "title": "PageLayer"
       },
-      "PageLinkOut": {
+      "PageLink": {
         "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
           "from_page_id": {
             "type": "string",
             "title": "From Page Id"
@@ -1174,6 +1639,10 @@
           },
           "link_type": {
             "$ref": "#/components/schemas/LinkType"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
           },
           "direction": {
             "anyOf": [
@@ -1187,11 +1656,13 @@
           },
           "strength": {
             "type": "number",
-            "title": "Strength"
+            "title": "Strength",
+            "default": 2.5
           },
           "reasoning": {
             "type": "string",
-            "title": "Reasoning"
+            "title": "Reasoning",
+            "default": ""
           },
           "created_at": {
             "type": "string",
@@ -1201,110 +1672,16 @@
         },
         "type": "object",
         "required": [
-          "id",
           "from_page_id",
           "to_page_id",
           "link_type",
+          "id",
           "direction",
           "strength",
           "reasoning",
           "created_at"
         ],
-        "title": "PageLinkOut"
-      },
-      "PageOut": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "page_type": {
-            "$ref": "#/components/schemas/PageType"
-          },
-          "layer": {
-            "$ref": "#/components/schemas/PageLayer"
-          },
-          "workspace": {
-            "$ref": "#/components/schemas/Workspace"
-          },
-          "content": {
-            "type": "string",
-            "title": "Content"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "project_id": {
-            "type": "string",
-            "title": "Project Id"
-          },
-          "epistemic_status": {
-            "type": "number",
-            "title": "Epistemic Status"
-          },
-          "epistemic_type": {
-            "type": "string",
-            "title": "Epistemic Type"
-          },
-          "provenance_model": {
-            "type": "string",
-            "title": "Provenance Model"
-          },
-          "provenance_call_type": {
-            "type": "string",
-            "title": "Provenance Call Type"
-          },
-          "provenance_call_id": {
-            "type": "string",
-            "title": "Provenance Call Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "superseded_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Superseded By"
-          },
-          "is_superseded": {
-            "type": "boolean",
-            "title": "Is Superseded"
-          },
-          "extra": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Extra"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "page_type",
-          "layer",
-          "workspace",
-          "content",
-          "summary",
-          "project_id",
-          "epistemic_status",
-          "epistemic_type",
-          "provenance_model",
-          "provenance_call_type",
-          "provenance_call_id",
-          "created_at",
-          "superseded_by",
-          "is_superseded",
-          "extra"
-        ],
-        "title": "PageOut"
+        "title": "PageLink"
       },
       "PageType": {
         "type": "string",
@@ -1318,15 +1695,79 @@
         ],
         "title": "PageType"
       },
-      "ProjectOut": {
+      "Phase1LoadedEventOut": {
         "properties": {
-          "id": {
+          "ts": {
             "type": "string",
-            "title": "Id"
+            "title": "Ts"
           },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "phase1_loaded",
+            "title": "Event"
+          },
+          "page_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Page Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "Phase1LoadedEventOut"
+      },
+      "Phase2LoadedEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "phase2_loaded",
+            "title": "Event"
+          },
+          "page_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Page Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "Phase2LoadedEventOut"
+      },
+      "Project": {
+        "properties": {
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
           },
           "created_at": {
             "type": "string",
@@ -1336,16 +1777,16 @@
         },
         "type": "object",
         "required": [
-          "id",
           "name",
+          "id",
           "created_at"
         ],
-        "title": "ProjectOut"
+        "title": "Project"
       },
       "QuestionTreeOut": {
         "properties": {
           "question": {
-            "$ref": "#/components/schemas/PageOut"
+            "$ref": "#/components/schemas/Page"
           },
           "considerations": {
             "items": {
@@ -1356,7 +1797,7 @@
           },
           "judgements": {
             "items": {
-              "$ref": "#/components/schemas/PageOut"
+              "$ref": "#/components/schemas/Page"
             },
             "type": "array",
             "title": "Judgements"
@@ -1396,6 +1837,52 @@
         ],
         "title": "RealtimeConfigOut"
       },
+      "ReviewCompleteEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "review_complete",
+            "title": "Event"
+          },
+          "remaining_fruit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Fruit"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event"
+        ],
+        "title": "ReviewCompleteEventOut"
+      },
       "RunSummaryOut": {
         "properties": {
           "run_id": {
@@ -1423,7 +1910,7 @@
           "question": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PageOut"
+                "$ref": "#/components/schemas/Page"
               },
               {
                 "type": "null"
@@ -1445,35 +1932,6 @@
           "root_calls"
         ],
         "title": "RunTraceOut"
-      },
-      "TraceEventOut": {
-        "properties": {
-          "event": {
-            "type": "string",
-            "title": "Event"
-          },
-          "ts": {
-            "type": "string",
-            "title": "Ts"
-          },
-          "call_id": {
-            "type": "string",
-            "title": "Call Id"
-          },
-          "data": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Data",
-            "default": {}
-          }
-        },
-        "type": "object",
-        "required": [
-          "event",
-          "ts",
-          "call_id"
-        ],
-        "title": "TraceEventOut"
       },
       "ValidationError": {
         "properties": {
@@ -1514,6 +1972,35 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WarningEventOut": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "event": {
+            "type": "string",
+            "const": "warning",
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "call_id",
+          "event",
+          "message"
+        ],
+        "title": "WarningEventOut"
       },
       "Workspace": {
         "type": "string",
