@@ -272,7 +272,16 @@ async def run_call(
             extra_text = await _format_loaded_pages(phase1_ids, db)
             context_text = context_text + "\n\n## Loaded Pages\n\n" + extra_text
 
-    tools = [MOVES[mt].bind(state) for mt in available_moves]
+    if call_type == CallType.PRIORITIZATION:
+        from differential.moves.create_question import PRIORITIZATION_MOVE
+        tools = []
+        for mt in available_moves:
+            if mt == MoveType.CREATE_QUESTION:
+                tools.append(PRIORITIZATION_MOVE.bind(state))
+            else:
+                tools.append(MOVES[mt].bind(state))
+    else:
+        tools = [MOVES[mt].bind(state) for mt in available_moves]
     if call_type == CallType.PRIORITIZATION:
         for ddef in DISPATCH_DEFS.values():
             tools.append(ddef.bind(state, subtree_ids, short_id_map))
