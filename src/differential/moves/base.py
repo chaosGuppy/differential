@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
@@ -35,6 +35,7 @@ class MoveResult:
 
     message: str
     created_page_id: str | None = None
+    dispatches: list[Dispatch] = field(default_factory=list)
 
 
 class MoveState:
@@ -85,6 +86,8 @@ class MoveDef(Generic[S]):
                 validated = _resolve_last_created(validated, state.last_created_id)
             result = await self.execute(validated, state.call, state.db)
             state.moves.append(Move(move_type=self.move_type, payload=validated))
+            if result.dispatches:
+                state.dispatches.extend(result.dispatches)
             if result.created_page_id:
                 state.created_page_ids.append(result.created_page_id)
                 state.last_created_id = result.created_page_id
