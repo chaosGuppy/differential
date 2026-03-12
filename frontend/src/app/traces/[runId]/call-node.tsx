@@ -401,6 +401,9 @@ export function CallNode({
         <span className="trace-call-type">
           {call.call_type}
         </span>
+        {trace.scope_page_summary && (
+          <span className="trace-call-scope">{trace.scope_page_summary}</span>
+        )}
         <span className="trace-call-id">{shortId}</span>
         <span className="trace-call-meta">
           <StatusDot status={call.status} />
@@ -467,7 +470,6 @@ export function CallNode({
                           style={{ color: CALL_TYPE_ACCENT[d.call_type] || "#7a8a9e" }}
                         >
                           {d.call_type}
-                          {!ex && " (skipped)"}
                         </span>
                       )}
                       {d.reason ? (
