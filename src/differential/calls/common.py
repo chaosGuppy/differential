@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+import anthropic
+from anthropic.types import TextBlock, ToolUseBlock
 from pydantic import BaseModel, Field
 
 from differential.context import format_page
@@ -13,13 +15,14 @@ from differential.database import DB
 from differential.settings import get_settings
 from differential.llm import (
     AgentResult,
+    LLMExchangeMetadata,
     RoundRecord,
-    StructuredCallResult,
+    Tool,
+    ToolCall,
     build_system_prompt,
     build_user_message,
+    call_api,
     structured_call,
-    agent_loop,
-    single_call_with_tools,
 )
 from differential.models import (
     Call,
@@ -33,17 +36,15 @@ from differential.calls.dispatches import DISPATCH_DEFS
 from differential.moves.base import MoveState
 from differential.moves.load_page import LoadPagePayload
 from differential.moves.registry import MOVES
-
-log = logging.getLogger(__name__)
-
 from differential.trace_events import (
-    LLMExchangeEvent,
     MoveTraceItem,
     MovesExecutedEvent,
     PageRef,
     WarningEvent,
 )
 from differential.tracer import CallTrace
+
+log = logging.getLogger(__name__)
 
 PAGE_ID_FIELDS: dict[MoveType, list[str]] = {
     MoveType.LOAD_PAGE: ["page_id"],
@@ -64,6 +65,314 @@ PHASE1_TASK = (
     'before the main task begins; load everything relevant in one go. '
     'The main task description will follow in the next turn.'
 )
+
+
+async def _execute_tool_uses(
+    tool_uses: list[ToolUseBlock],
+    tool_fns: dict,
+) -> tuple[list[ToolCall], list[dict]]:
+    """Execute tool calls and build tool_result messages."""
+    tool_calls: list[ToolCall] = []
+    tool_results: list[dict] = []
+    for tu in tool_uses:
+        fn = tool_fns.get(tu.name)
+        if fn is None:
+            result_str = f"Unknown tool: {tu.name}"
+            log.warning("Unknown tool called by LLM: %s", tu.name)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tu.id,
+                "content": result_str,
+                "is_error": True,
+            })
+        else:
+            try:
+                result_str = await fn(tu.input)
+            except Exception as e:
+                log.error(
+                    "Tool %s raised an exception: %s", tu.name, e, exc_info=True,
+                )
+                result_str = f"Error: {e}"
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tu.id,
+                    "content": result_str,
+                    "is_error": True,
+                })
+            else:
+                log.debug(
+                    "Tool %s returned: %s",
+                    tu.name, result_str[:200] if result_str else "(empty)",
+                )
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tu.id,
+                    "content": result_str,
+                })
+        tool_calls.append(ToolCall(name=tu.name, input=tu.input, result=result_str))
+    return tool_calls, tool_results
+
+
+async def _record_round_moves(
+    rr: RoundRecord,
+    *,
+    trace: CallTrace,
+    state: MoveState,
+    move_cursor: int,
+    move_tool_names: set[str],
+    db: DB,
+) -> int:
+    """Record move trace events for tools executed in this round. Returns updated move_cursor."""
+    round_move_count = sum(
+        1 for tc in rr.tool_calls if tc.name in move_tool_names
+    )
+    if round_move_count > 0:
+        round_moves = state.moves[move_cursor:move_cursor + round_move_count]
+        round_created = state.move_created_ids[
+            move_cursor:move_cursor + round_move_count
+        ]
+        move_cursor += round_move_count
+        await trace.record(
+            await moves_to_trace_event(round_moves, round_created, db)
+        )
+    return move_cursor
+
+
+def _prepare_tools(tools: list[Tool]) -> tuple[list[dict], dict]:
+    """Build API tool definitions and function lookup from Tool list."""
+    tool_defs = [
+        {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+        for t in tools
+    ]
+    tool_fns = {t.name: t.fn for t in tools}
+    return tool_defs, tool_fns
+
+
+async def run_single_call(
+    system_prompt: str,
+    user_message: str,
+    tools: list[Tool],
+    *,
+    call_id: str,
+    phase: str,
+    db: DB,
+    state: MoveState,
+    trace: "CallTrace | None" = None,
+    max_tokens: int = 4096,
+) -> AgentResult:
+    """Single LLM call with tools, plus exchange/trace persistence.
+
+    Executes tool calls but does NOT loop back. Used for phase-1 page
+    loading and single-call prioritization.
+    """
+    settings = get_settings()
+    client = anthropic.AsyncAnthropic(api_key=settings.require_anthropic_key())
+    tool_defs, tool_fns = _prepare_tools(tools)
+    move_tool_names = {md.name for md in MOVES.values()}
+
+    log.debug(
+        "run_single_call: phase=%s, max_tokens=%d, tools=%s",
+        phase, max_tokens, [t.name for t in tools],
+    )
+
+    messages: list[dict] = [{"role": "user", "content": user_message}]
+    all_warnings: list[str] = []
+    meta = LLMExchangeMetadata(
+        call_id=call_id, phase=phase, trace=trace,
+        user_message=user_message,
+    )
+    api_resp = await call_api(
+        client, settings.model, system_prompt, messages,
+        tool_defs or None, max_tokens, warnings=all_warnings,
+        metadata=meta, db=db,
+    )
+    response = api_resp.message
+
+    text_parts: list[str] = []
+    tool_uses: list[ToolUseBlock] = []
+    for block in response.content:
+        if isinstance(block, TextBlock):
+            text_parts.append(block.text)
+        elif isinstance(block, ToolUseBlock):
+            tool_uses.append(block)
+
+    all_tool_calls, _ = await _execute_tool_uses(tool_uses, tool_fns)
+
+    rr = RoundRecord(
+        round=0,
+        response_text="\n".join(text_parts),
+        tool_calls=all_tool_calls,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        duration_ms=api_resp.duration_ms,
+    )
+
+    if trace:
+        await _record_round_moves(
+            rr,
+            trace=trace,
+            state=state,
+            move_cursor=len(state.moves),
+            move_tool_names=move_tool_names,
+            db=db,
+        )
+    for w in all_warnings:
+        if trace:
+            await trace.record(WarningEvent(message=w))
+
+    log.info(
+        "run_single_call complete: %d tool calls, %d text chars",
+        len(all_tool_calls), sum(len(t) for t in text_parts),
+    )
+    return AgentResult(
+        text="\n".join(text_parts),
+        tool_calls=all_tool_calls,
+        rounds=[rr],
+        system_prompt=system_prompt,
+        user_message=user_message,
+        warnings=all_warnings,
+    )
+
+
+async def run_agent_loop(
+    system_prompt: str,
+    user_message: str,
+    tools: list[Tool],
+    *,
+    call_id: str,
+    db: DB,
+    state: MoveState,
+    trace: "CallTrace | None" = None,
+    max_tokens: int = 4096,
+    max_rounds: int | None = None,
+) -> AgentResult:
+    """Tool-use conversation loop with per-round exchange/trace persistence.
+
+    Each Tool's fn is called when the LLM invokes it. The fn's return value
+    is sent back as the tool_result content. If fn raises, the exception
+    message is sent back as an error result.
+    """
+    settings = get_settings()
+    effective_rounds = max_rounds if max_rounds is not None else (
+        2 if settings.is_smoke_test else 6
+    )
+    client = anthropic.AsyncAnthropic(api_key=settings.require_anthropic_key())
+    tool_defs, tool_fns = _prepare_tools(tools)
+    move_tool_names = {md.name for md in MOVES.values()}
+
+    log.debug(
+        "run_agent_loop starting: max_rounds=%d, max_tokens=%d, tools=%s",
+        effective_rounds, max_tokens, [t.name for t in tools],
+    )
+
+    messages: list[dict] = [{"role": "user", "content": user_message}]
+    text_parts: list[str] = []
+    all_tool_calls: list[ToolCall] = []
+    all_rounds: list[RoundRecord] = []
+    all_warnings: list[str] = []
+    move_cursor = len(state.moves)
+    round_num = 0
+
+    for round_num in range(effective_rounds + 1):
+        log.debug("run_agent_loop round %d/%d", round_num + 1, effective_rounds)
+        meta = LLMExchangeMetadata(
+            call_id=call_id, phase="inner_loop", trace=trace,
+            round_num=round_num,
+            user_message=user_message if round_num == 0 else None,
+        )
+        api_resp = await call_api(
+            client, settings.model, system_prompt, messages,
+            tool_defs or None, max_tokens, warnings=all_warnings,
+            metadata=meta, db=db,
+        )
+        response = api_resp.message
+
+        tool_uses: list[ToolUseBlock] = []
+        round_text_parts: list[str] = []
+        for block in response.content:
+            if isinstance(block, TextBlock):
+                text_parts.append(block.text)
+                round_text_parts.append(block.text)
+            elif isinstance(block, ToolUseBlock):
+                tool_uses.append(block)
+
+        if response.stop_reason == "end_turn" or not tool_uses:
+            log.debug(
+                "run_agent_loop ending: stop_reason=%s, tool_uses=%d, rounds_used=%d",
+                response.stop_reason, len(tool_uses), round_num + 1,
+            )
+            rr = RoundRecord(
+                round=round_num,
+                response_text="\n".join(round_text_parts),
+                tool_calls=[],
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                duration_ms=api_resp.duration_ms,
+            )
+            all_rounds.append(rr)
+            break
+
+        log.debug(
+            "run_agent_loop round %d: %d tool call(s): %s",
+            round_num + 1, len(tool_uses), [tu.name for tu in tool_uses],
+        )
+
+        round_tool_calls, tool_results = await _execute_tool_uses(tool_uses, tool_fns)
+        all_tool_calls.extend(round_tool_calls)
+
+        rr = RoundRecord(
+            round=round_num,
+            response_text="\n".join(round_text_parts),
+            tool_calls=round_tool_calls,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            duration_ms=api_resp.duration_ms,
+        )
+        all_rounds.append(rr)
+        if trace:
+            move_cursor = await _record_round_moves(
+                rr,
+                trace=trace,
+                state=state,
+                move_cursor=move_cursor,
+                move_tool_names=move_tool_names,
+                db=db,
+            )
+
+        remaining = effective_rounds - round_num
+        if remaining == 1:
+            budget_note = {
+                "type": "text",
+                "text": "This is your final round — finish your work now.",
+            }
+        else:
+            budget_note = {
+                "type": "text",
+                "text": (
+                    f"After this round of tool calls, you will have "
+                    f"{remaining - 1} rounds remaining."
+                ),
+            }
+
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": tool_results + [budget_note]})
+
+    for w in all_warnings:
+        if trace:
+            await trace.record(WarningEvent(message=w))
+
+    log.info(
+        "run_agent_loop complete: %d rounds, %d tool calls, %d text chars",
+        round_num + 1, len(all_tool_calls), sum(len(t) for t in text_parts),
+    )
+    return AgentResult(
+        text="\n".join(text_parts),
+        tool_calls=all_tool_calls,
+        rounds=all_rounds,
+        system_prompt=system_prompt,
+        user_message=user_message,
+        warnings=all_warnings,
+    )
 
 
 class PageRating(BaseModel):
@@ -114,66 +423,6 @@ class RunCallResult:
     agent_result: AgentResult = field(default_factory=AgentResult)
 
 
-async def _save_exchanges(
-    agent_result: AgentResult,
-    call_id: str,
-    phase: str,
-    db: DB,
-    trace: "CallTrace | None" = None,
-    moves: list[Move] | None = None,
-    move_created_ids: list[list[str]] | None = None,
-) -> None:
-    """Save LLM exchange records and interleave moves per round."""
-    move_tool_names = {md.name for md in MOVES.values()}
-    move_idx = 0
-    for rr in agent_result.rounds:
-        tc_data = [
-            {"name": tc.name, "input": tc.input, "result": tc.result[:500]}
-            for tc in rr.tool_calls
-        ]
-        exchange_id = await db.save_llm_exchange(
-            call_id=call_id,
-            phase=phase,
-            round_num=rr.round,
-            system_prompt=agent_result.system_prompt,
-            user_message=agent_result.user_message if rr.round == 0 else None,
-            response_text=rr.response_text,
-            tool_calls=tc_data,
-            input_tokens=rr.input_tokens,
-            output_tokens=rr.output_tokens,
-            error=rr.error,
-            duration_ms=rr.duration_ms or None,
-        )
-        if trace:
-            has_rounds = phase == "inner_loop"
-            await trace.record(LLMExchangeEvent(
-                exchange_id=exchange_id,
-                phase=phase,
-                round=rr.round if has_rounds else None,
-                input_tokens=rr.input_tokens,
-                output_tokens=rr.output_tokens,
-                duration_ms=rr.duration_ms or None,
-            ))
-        if trace and moves:
-            round_move_count = sum(
-                1 for tc in rr.tool_calls if tc.name in move_tool_names
-            )
-            if round_move_count > 0:
-                round_moves = moves[move_idx:move_idx + round_move_count]
-                round_created = (
-                    move_created_ids[move_idx:move_idx + round_move_count]
-                    if move_created_ids
-                    else [[] for _ in round_moves]
-                )
-                move_idx += round_move_count
-                await trace.record(
-                    await moves_to_trace_event(round_moves, round_created, db)
-                )
-    for w in agent_result.warnings:
-        if trace:
-            await trace.record(WarningEvent(message=w))
-
-
 async def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
     """Format loaded pages as context text for phase 2."""
     parts = []
@@ -187,6 +436,7 @@ async def _format_loaded_pages(page_ids: list[str], db: DB) -> str:
 async def _run_phase1(
     system_prompt: str,
     context_text: str,
+    call_id: str,
     state: MoveState,
     db: DB,
     trace: "CallTrace | None" = None,
@@ -199,21 +449,17 @@ async def _run_phase1(
     try:
         phase1_msg = build_user_message(context_text, PHASE1_TASK)
         load_page_tool = MOVES[MoveType.LOAD_PAGE].bind(state)
-        moves_before = len(state.moves)
-        result = await single_call_with_tools(
+        result = await run_single_call(
             system_prompt=system_prompt,
             user_message=phase1_msg,
             tools=[load_page_tool],
+            call_id=call_id,
+            phase="initial_page_loads",
+            db=db,
+            state=state,
+            trace=trace,
             max_tokens=2048,
         )
-        phase1_moves = state.moves[moves_before:]
-        phase1_created = state.move_created_ids[moves_before:]
-        if trace:
-            await _save_exchanges(
-                result, trace.call_id, "initial_page_loads", db, trace,
-                moves=phase1_moves,
-                move_created_ids=phase1_created,
-            )
         loaded_ids = []
         for tc in result.tool_calls:
             if tc.name == "load_page":
@@ -270,7 +516,9 @@ async def run_call(
 
     phase1_ids: list[str] = []
     if call_type != CallType.PRIORITIZATION:
-        phase1_ids = await _run_phase1(system_prompt, context_text, state, db, trace=trace)
+        phase1_ids = await _run_phase1(
+            system_prompt, context_text, call.id, state, db, trace=trace,
+        )
         if phase1_ids:
             extra_text = await _format_loaded_pages(phase1_ids, db)
             context_text = context_text + "\n\n## Loaded Pages\n\n" + extra_text
@@ -291,79 +539,26 @@ async def run_call(
 
     user_message = build_user_message(context_text, task_description)
 
-    phase = "prioritization" if call_type == CallType.PRIORITIZATION else "inner_loop"
-    moves_before = len(state.moves)
     if call_type == CallType.PRIORITIZATION:
-        agent_result = await single_call_with_tools(
-            system_prompt,
-            user_message,
-            tools,
+        agent_result = await run_single_call(
+            system_prompt, user_message, tools,
+            call_id=call.id,
+            phase="prioritization",
+            db=db,
+            state=state,
+            trace=trace,
             max_tokens=max_tokens,
         )
-        phase_moves = state.moves[moves_before:]
-        phase_move_created = state.move_created_ids[moves_before:]
-        if trace:
-            await _save_exchanges(
-                agent_result, call.id, phase, db, trace,
-                moves=phase_moves, move_created_ids=phase_move_created,
-            )
     else:
-        move_tool_names = {md.name for md in MOVES.values()}
-        move_cursor = moves_before
-
-        async def _on_round(rr: RoundRecord) -> None:
-            nonlocal move_cursor
-            if not trace:
-                return
-            tc_data = [
-                {"name": tc.name, "input": tc.input, "result": tc.result[:500]}
-                for tc in rr.tool_calls
-            ]
-            exchange_id = await db.save_llm_exchange(
-                call_id=call.id,
-                phase=phase,
-                round_num=rr.round,
-                system_prompt=system_prompt,
-                user_message=user_message if rr.round == 0 else None,
-                response_text=rr.response_text,
-                tool_calls=tc_data,
-                input_tokens=rr.input_tokens,
-                output_tokens=rr.output_tokens,
-                error=rr.error,
-                duration_ms=rr.duration_ms or None,
-            )
-            await trace.record(LLMExchangeEvent(
-                exchange_id=exchange_id,
-                phase=phase,
-                round=rr.round,
-                input_tokens=rr.input_tokens,
-                output_tokens=rr.output_tokens,
-                duration_ms=rr.duration_ms or None,
-            ))
-            round_move_count = sum(
-                1 for tc in rr.tool_calls if tc.name in move_tool_names
-            )
-            if round_move_count > 0:
-                round_moves = state.moves[move_cursor:move_cursor + round_move_count]
-                round_created = state.move_created_ids[
-                    move_cursor:move_cursor + round_move_count
-                ]
-                move_cursor += round_move_count
-                await trace.record(
-                    await moves_to_trace_event(round_moves, round_created, db)
-                )
-
-        agent_result = await agent_loop(
-            system_prompt,
-            user_message,
-            tools,
+        agent_result = await run_agent_loop(
+            system_prompt, user_message, tools,
+            call_id=call.id,
+            db=db,
+            state=state,
+            trace=trace,
             max_tokens=max_tokens,
             max_rounds=max_rounds,
-            on_round=_on_round,
         )
-        for w in agent_result.warnings:
-            if trace:
-                await trace.record(WarningEvent(message=w))
 
     log.info(
         "run_call complete: type=%s, pages_created=%d, dispatches=%d, moves=%d",
@@ -515,33 +710,19 @@ async def run_closing_review(
     )
     try:
         user_message = build_user_message(context_text, review_task)
+        meta = LLMExchangeMetadata(
+            call_id=call.id, phase="closing_review",
+            trace=trace, user_message=user_message,
+        ) if db else None
         result = await structured_call(
             system_prompt=REVIEW_SYSTEM_PROMPT,
             user_message=user_message,
             response_model=ReviewResponse,
             max_tokens=2048,
+            metadata=meta,
+            db=db,
         )
         review = result.data
-        if trace and db:
-            exchange_id = await db.save_llm_exchange(
-                call_id=call.id,
-                phase="closing_review",
-                round_num=0,
-                system_prompt=REVIEW_SYSTEM_PROMPT,
-                user_message=user_message,
-                response_text=result.response_text,
-                tool_calls=[],
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                duration_ms=result.duration_ms,
-            )
-            await trace.record(LLMExchangeEvent(
-                exchange_id=exchange_id,
-                phase="closing_review",
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-                duration_ms=result.duration_ms,
-            ))
         if review:
             log.info(
                 "Closing review complete: call=%s, fruit=%s, confidence=%s",
