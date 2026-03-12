@@ -144,12 +144,14 @@ class CallTraceOut(BaseModel):
     call: Call
     events: list[TraceEventOut]
     children: list['CallTraceOut']
+    cost_usd: float | None = None
 
 
 class RunTraceOut(BaseModel):
     run_id: str
     question: Page | None
     root_calls: list[CallTraceOut]
+    cost_usd: float | None = None
 
 
 class RunSummaryOut(BaseModel):
