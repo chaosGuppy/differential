@@ -232,6 +232,7 @@ async def run_agent_loop(
     max_tokens: int = 4096,
     max_rounds: int | None = None,
     messages: list[dict] | None = None,
+    cache: bool = False,
 ) -> AgentResult:
     """Tool-use conversation loop with per-round exchange/trace persistence.
 
@@ -278,7 +279,7 @@ async def run_agent_loop(
         api_resp = await call_api(
             client, settings.model, system_prompt, msg_list,
             tool_defs or None, max_tokens, warnings=all_warnings,
-            metadata=meta, db=db,
+            metadata=meta, db=db, cache=cache,
         )
         response = api_resp.message
 
@@ -305,6 +306,7 @@ async def run_agent_loop(
                 duration_ms=api_resp.duration_ms,
             )
             all_rounds.append(rr)
+            msg_list.append({"role": "assistant", "content": response.content})
             break
 
         log.debug(

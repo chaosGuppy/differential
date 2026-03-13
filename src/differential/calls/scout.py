@@ -73,7 +73,7 @@ _FRUIT_CHECK_MESSAGE = (
     "Before continuing, rate how much useful scouting work remains on this "
     "scope question. Consider what you have already contributed and what "
     "angles are left unexplored. Respond with remaining_fruit (0-10) and "
-    "brief_reasoning."
+    "brief_reasoning. Do not call any tools — they will have no effect here."
 )
 
 
@@ -104,10 +104,10 @@ async def _run_fruit_check(
         response_model=FruitCheck,
         messages=check_messages,
         tools=tool_defs,
-        tool_choice={"type": "none"},
         max_tokens=256,
         metadata=meta,
         db=db,
+        cache=True,
     )
     if result.data:
         score = result.data.get("remaining_fruit", 5)
@@ -227,7 +227,8 @@ _CONTINUE_TEMPLATE = (
 )
 
 _REVIEW_INSTRUCTION = (
-    'You have finished scouting. Now perform your closing review.\n\n'
+    'You have finished scouting. Now perform your closing review. '
+    'Do not call any tools — they will have no effect here.\n\n'
     'For each page that was loaded into your context (listed in your working '
     'context), rate how helpful it was. For helpful pages (score 1 or 2), '
     'include a link to connect it to the scope question.\n\n'
@@ -425,10 +426,10 @@ async def _run_session_review(
         response_model=ReviewResponse,
         messages=review_messages,
         tools=tool_defs,
-        tool_choice={"type": "none"},
         max_tokens=4096,
         metadata=meta,
         db=db,
+        cache=True,
     )
     review_data = review_result.data or {}
 
@@ -499,6 +500,7 @@ async def run_scout_session(
                 db=db,
                 state=ctx.state,
                 trace=ctx.trace,
+                cache=True,
             )
         else:
             mode_instruction = (
@@ -518,6 +520,7 @@ async def run_scout_session(
                 state=ctx.state,
                 trace=ctx.trace,
                 messages=resume_messages,
+                cache=True,
             )
 
         rounds_completed += 1

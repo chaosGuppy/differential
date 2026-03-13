@@ -61,6 +61,35 @@ def build_user_message(context_text: str, task_description: str) -> str:
     return task_description
 
 
+_CACHE_BREAKPOINT = {"type": "ephemeral"}
+
+
+def _add_cache_breakpoint(messages: list[dict]) -> list[dict]:
+    """Return a shallow copy of messages with a cache breakpoint on the last block.
+
+    Mutates nothing — copies only the last message and its content.
+    """
+    if not messages:
+        return messages
+    msgs = list(messages)
+    last = dict(msgs[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        last["content"] = [
+            {"type": "text", "text": content, "cache_control": _CACHE_BREAKPOINT},
+        ]
+    elif isinstance(content, list) and content:
+        content = list(content)
+        last_block = content[-1]
+        if isinstance(last_block, dict):
+            content[-1] = {**last_block, "cache_control": _CACHE_BREAKPOINT}
+        else:
+            content[-1] = {**last_block.model_dump(), "cache_control": _CACHE_BREAKPOINT}
+        last["content"] = content
+    msgs[-1] = last
+    return msgs
+
+
 @dataclass
 class Tool:
     """A tool available to the LLM. fn is called with the parsed input dict
@@ -189,6 +218,7 @@ async def call_api(
     warnings: list[str] | None = None,
     metadata: LLMExchangeMetadata | None = None,
     db: DB | None = None,
+    cache: bool = False,
 ) -> APIResponse:
     """Make a single Anthropic API call with retry logic.
 
@@ -201,7 +231,7 @@ async def call_api(
         "model": model,
         "max_tokens": max_tokens,
         "system": system_prompt,
-        "messages": messages,
+        "messages": _add_cache_breakpoint(messages) if cache else messages,
     }
     if tools:
         kwargs["tools"] = tools
@@ -327,6 +357,7 @@ async def structured_call(
     max_tokens: int = 1024,
     metadata: LLMExchangeMetadata | None = None,
     db: DB | None = None,
+    cache: bool = False,
 ) -> StructuredCallResult:
     """Run an LLM call that returns structured output matching response_model.
 
@@ -345,9 +376,12 @@ async def structured_call(
     model = settings.model
     client = anthropic.AsyncAnthropic(api_key=api_key)
 
-    msg_list: list[MessageParam] = (
+    raw_msgs = (
         messages if messages is not None
         else [{"role": "user", "content": user_message}]
+    )
+    msg_list: list[MessageParam] = (
+        _add_cache_breakpoint(raw_msgs) if cache else raw_msgs
     )
     log.debug(
         "structured_call: model=%s, response_model=%s, max_tokens=%d",
