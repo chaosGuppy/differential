@@ -17,6 +17,7 @@ from differential.models import (
     CallStatus,
     CallType,
     ConsiderationDirection,
+    LinkRole,
     LinkType,
     Page,
     PageLayer,
@@ -70,6 +71,7 @@ def _row_to_link(row: dict[str, Any]) -> PageLink:
         ),
         strength=row["strength"],
         reasoning=row["reasoning"] or "",
+        role=LinkRole(row.get("role", "structural")),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -285,10 +287,20 @@ class DB:
                 "direction": link.direction.value if link.direction else None,
                 "strength": link.strength,
                 "reasoning": link.reasoning,
+                "role": link.role.value,
                 "created_at": link.created_at.isoformat(),
                 "run_id": self.run_id,
             }
         ).execute()
+
+    async def get_link(self, link_id: str) -> PageLink | None:
+        rows = _rows(
+            await self.client.table("page_links")
+            .select("*")
+            .eq("id", link_id)
+            .execute()
+        )
+        return _row_to_link(rows[0]) if rows else None
 
     async def get_links_to(self, page_id: str) -> list[PageLink]:
         rows = _rows(
@@ -333,6 +345,19 @@ class DB:
             page = await self.get_page(link.to_page_id)
             if page and page.is_active():
                 result.append(page)
+        return result
+
+    async def get_child_questions_with_links(
+        self, parent_id: str,
+    ) -> list[tuple[Page, PageLink]]:
+        """Return (child_page, link) pairs for sub-questions of a question."""
+        links = await self.get_links_from(parent_id)
+        child_links = [l for l in links if l.link_type == LinkType.CHILD_QUESTION]
+        result = []
+        for link in child_links:
+            page = await self.get_page(link.to_page_id)
+            if page and page.is_active():
+                result.append((page, link))
         return result
 
     async def get_judgements_for_question(self, question_id: str) -> list[Page]:
@@ -412,18 +437,22 @@ class DB:
         call_id: str,
         status: CallStatus,
         result_summary: str = "",
+        call_params: dict | None = None,
     ) -> None:
         completed_at = (
             datetime.now(timezone.utc).isoformat()
             if status == CallStatus.COMPLETE
             else None
         )
+        payload: dict = {
+            "status": status.value,
+            "result_summary": result_summary,
+            "completed_at": completed_at,
+        }
+        if call_params is not None:
+            payload["call_params"] = call_params
         await self.client.table("calls").update(
-            {
-                "status": status.value,
-                "result_summary": result_summary,
-                "completed_at": completed_at,
-            }
+            payload
         ).eq("id", call_id).execute()
 
     async def increment_call_budget_used(
@@ -519,6 +548,12 @@ class DB:
     async def delete_link(self, link_id: str) -> None:
         """Delete a page link by ID."""
         await self.client.table("page_links").delete().eq("id", link_id).execute()
+
+    async def update_link_role(self, link_id: str, role: LinkRole) -> None:
+        """Update a link's role."""
+        await self.client.table("page_links").update(
+            {"role": role.value}
+        ).eq("id", link_id).execute()
 
     async def get_last_scout_info(
         self,

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from differential.database import DB
 from differential.models import (
     Call,
+    LinkRole,
     LinkType,
     MoveType,
     PageLink,
@@ -24,6 +25,13 @@ class ConsiderationLinkFields(BaseModel):
     )
     reasoning: str = Field(
         "", description="Why this claim bears on the question"
+    )
+    role: LinkRole = Field(
+        LinkRole.STRUCTURAL,
+        description=(
+            "Link role: 'direct' = this claim directly bears on the answer; "
+            "'structural' = this claim frames what evidence/angles to explore."
+        ),
     )
 
 
@@ -47,6 +55,7 @@ async def execute(payload: LinkConsiderationPayload, call: Call, db: DB) -> Move
         link_type=LinkType.CONSIDERATION,
         strength=payload.strength,
         reasoning=payload.reasoning,
+        role=payload.role,
     )
     await db.save_link(link)
     log.info(

@@ -124,10 +124,10 @@ async def _record_round_moves(
     db: DB,
 ) -> None:
     """Record a trace event for any moves added since the last call."""
-    round_moves, round_created = state.take_new_moves()
+    round_moves, round_created, round_extras = state.take_new_moves()
     if round_moves:
         await trace.record(
-            await moves_to_trace_event(round_moves, round_created, db)
+            await moves_to_trace_event(round_moves, round_created, db, round_extras)
         )
 
 
@@ -143,8 +143,8 @@ def _prepare_tools(tools: list[Tool]) -> tuple[list[dict], dict]:
 
 async def run_single_call(
     system_prompt: str,
-    user_message: str,
-    tools: list[Tool],
+    user_message: str = "",
+    tools: list[Tool] | None = None,
     *,
     call_id: str,
     phase: str,
@@ -152,31 +152,45 @@ async def run_single_call(
     state: MoveState,
     trace: "CallTrace | None" = None,
     max_tokens: int = 4096,
+    messages: list[dict] | None = None,
+    cache: bool = False,
 ) -> AgentResult:
     """Single LLM call with tools, plus exchange/trace persistence.
 
     Executes tool calls but does NOT loop back. Used for phase-1 page
-    loading and single-call prioritization.
+    loading, single-call prioritization, and review link modification.
+
+    Pass `messages` to resume a prior conversation, or `user_message` for
+    a fresh single-turn call.
     """
+    if not user_message and not messages:
+        raise ValueError("Either user_message or messages must be provided")
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.require_anthropic_key())
-    tool_defs, tool_fns = _prepare_tools(tools)
+    if tools is not None:
+        tool_defs, tool_fns = _prepare_tools(tools)
+    else:
+        tool_defs = []
+        tool_fns = {}
 
     log.debug(
-        "run_single_call: phase=%s, max_tokens=%d, tools=%s",
-        phase, max_tokens, [t.name for t in tools],
+        "run_single_call: phase=%s, max_tokens=%d, tools=%d, resuming=%s",
+        phase, max_tokens, len(tool_defs), messages is not None,
     )
 
-    messages: list[dict] = [{"role": "user", "content": user_message}]
+    msg_list: list[dict] = (
+        messages if messages is not None
+        else [{"role": "user", "content": user_message}]
+    )
     all_warnings: list[str] = []
     meta = LLMExchangeMetadata(
         call_id=call_id, phase=phase, trace=trace,
-        user_message=user_message,
+        user_message=user_message if user_message else None,
     )
     api_resp = await call_api(
-        client, settings.model, system_prompt, messages,
+        client, settings.model, system_prompt, msg_list,
         tool_defs or None, max_tokens, warnings=all_warnings,
-        metadata=meta, db=db,
+        metadata=meta, db=db, cache=cache,
     )
     response = api_resp.message
 
@@ -188,7 +202,7 @@ async def run_single_call(
         elif isinstance(block, ToolUseBlock):
             tool_uses.append(block)
 
-    all_tool_calls, _ = await _execute_tool_uses(tool_uses, tool_fns)
+    all_tool_calls, tool_results = await _execute_tool_uses(tool_uses, tool_fns)
 
     rr = RoundRecord(
         round=0,
@@ -205,6 +219,10 @@ async def run_single_call(
         if trace:
             await trace.record(WarningEvent(message=w))
 
+    msg_list.append({"role": "assistant", "content": response.content})
+    if tool_results:
+        msg_list.append({"role": "user", "content": tool_results})
+
     log.info(
         "run_single_call complete: %d tool calls, %d text chars",
         len(all_tool_calls), sum(len(t) for t in text_parts),
@@ -216,6 +234,7 @@ async def run_single_call(
         system_prompt=system_prompt,
         user_message=user_message,
         warnings=all_warnings,
+        messages=msg_list,
     )
 
 
@@ -664,6 +683,7 @@ async def moves_to_trace_event(
     moves: list[Move],
     move_created_ids: list[list[str]],
     db: DB,
+    trace_extras: list[dict] | None = None,
 ) -> MovesExecutedEvent:
     """Build a typed MovesExecutedEvent from a list of moves."""
     trace_items = []
@@ -677,10 +697,12 @@ async def moves_to_trace_event(
                 created_refs.append(pr)
                 seen.add(pr.id)
         payload_data = m.payload.model_dump(exclude_none=True, exclude_defaults=True)
+        extra = trace_extras[i] if trace_extras and i < len(trace_extras) else {}
         trace_items.append(MoveTraceItem(
             type=m.move_type.value,
             page_refs=created_refs,
             **payload_data,
+            **extra,
         ))
     return MovesExecutedEvent(moves=trace_items)
 
@@ -892,38 +914,3 @@ def format_moves_for_review(moves: list[Move]) -> str:
             parts.append(f"- {m.move_type.value}")
     return "\n".join(parts)
 
-
-async def auto_unlink_unhelpful_pages(
-    review_data: dict,
-    scope_question_id: str | None,
-    db: DB,
-) -> None:
-    """Unlink pages rated lower than helpful from the scope question.
-
-    Pages rated < 1 (confusing or no help) that are currently linked to the
-    scope question have their links removed. Linking of helpful pages is
-    handled by the LLM via the `links` field in the review response.
-    """
-    if not scope_question_id:
-        return
-    ratings = review_data.get("page_ratings", [])
-    if not ratings:
-        return
-
-    for r in ratings:
-        pid = await db.resolve_page_id(r.get("page_id", ""))
-        if not pid:
-            continue
-        score = r.get("score")
-        if not isinstance(score, int):
-            continue
-
-        if score < 1:
-            existing_links = await db.get_links_between(pid, scope_question_id)
-            if existing_links:
-                for link in existing_links:
-                    await db.delete_link(link.id)
-                log.info(
-                    "Auto-unlinked page %s from question %s (score=%d)",
-                    pid[:8], scope_question_id[:8], score,
-                )

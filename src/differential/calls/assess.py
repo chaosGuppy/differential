@@ -4,7 +4,6 @@ import logging
 
 from differential.calls.common import (
     RunCallResult,
-    auto_unlink_unhelpful_pages,
     complete_call,
     extract_loaded_page_ids,
     format_moves_for_review,
@@ -90,7 +89,6 @@ async def run_assess(
             remaining_fruit=review.data.get("remaining_fruit"),
             confidence=review.data.get("confidence_in_output"),
         ))
-        await auto_unlink_unhelpful_pages(review.data, call.scope_page_id, db)
 
     call.review_json = review.data
     log.info(

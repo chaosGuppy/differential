@@ -127,20 +127,29 @@ function PageList({ pages }: { pages: PageRef[] }) {
   );
 }
 
+function RoleBadge({ role }: { role: string }) {
+  const cls = role === "direct" ? "trace-role-badge-direct" : "trace-role-badge-structural";
+  return <span className={`trace-role-badge ${cls}`}>{role}</span>;
+}
+
 function MoveRow({
   moveType,
   summary,
   pageRefs,
+  extra,
 }: {
   moveType: string;
   summary: string;
   pageRefs?: PageRef[];
+  extra?: Record<string, unknown>;
 }) {
   const isCreate = moveType.startsWith("CREATE_");
   const isLink = moveType.startsWith("LINK_");
   const isSupersede = moveType === "SUPERSEDE_PAGE";
   const isHypothesis = moveType === "PROPOSE_HYPOTHESIS";
   const isLoad = moveType === "LOAD_PAGE";
+  const isChange = moveType === "CHANGE_LINK_ROLE";
+  const isRemove = moveType === "REMOVE_LINK";
 
   const typeClass = isCreate
     ? "trace-move-create"
@@ -152,9 +161,60 @@ function MoveRow({
           ? "trace-move-hypothesis"
           : isLoad
             ? "trace-move-load"
-            : "trace-move-default";
+            : isChange
+              ? "trace-move-change"
+              : isRemove
+                ? "trace-move-remove"
+                : "trace-move-default";
 
   const hasRefs = pageRefs && pageRefs.length > 0;
+
+  if (isChange && extra?.old_role && extra?.new_role) {
+    const fromPage = extra.from_page as { id: string; summary: string } | undefined;
+    const toPage = extra.to_page as { id: string; summary: string } | undefined;
+    return (
+      <div className="trace-move-row">
+        <span className={`trace-move-type ${typeClass}`}>
+          change role
+        </span>
+        <span className="trace-role-change-detail">
+          {fromPage && <PageChip page={fromPage} />}
+          {toPage && (
+            <>
+              <span className="trace-role-arrow">{"\u2192"}</span>
+              <PageChip page={toPage} />
+            </>
+          )}
+          <RoleBadge role={String(extra.old_role)} />
+          <span className="trace-role-arrow">{"\u2192"}</span>
+          <RoleBadge role={String(extra.new_role)} />
+        </span>
+      </div>
+    );
+  }
+
+  if (isRemove && extra?.from_page) {
+    const fromPage = extra.from_page as { id: string; summary: string } | undefined;
+    const toPage = extra.to_page as { id: string; summary: string } | undefined;
+    const role = extra.role as string | undefined;
+    return (
+      <div className="trace-move-row">
+        <span className={`trace-move-type ${typeClass}`}>
+          remove link
+        </span>
+        <span className="trace-role-change-detail">
+          {fromPage && <PageChip page={fromPage} />}
+          {toPage && (
+            <>
+              <span className="trace-role-arrow">{"\u2192"}</span>
+              <PageChip page={toPage} />
+            </>
+          )}
+          {role && <RoleBadge role={role} />}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="trace-move-row">
@@ -409,6 +469,7 @@ function EventSection({ event }: { event: TraceEvent }) {
               moveType={m.type}
               summary={m.summary || ""}
               pageRefs={m.page_refs}
+              extra={m as unknown as Record<string, unknown>}
             />
           ))}
         </div>

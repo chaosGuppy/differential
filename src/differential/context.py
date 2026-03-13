@@ -5,7 +5,7 @@ Build context text from workspace pages for injection into LLM prompts.
 import logging
 
 from differential.database import DB
-from differential.models import Page, PageType, Workspace
+from differential.models import LinkRole, Page, PageType, Workspace
 from differential.workspace_map import build_workspace_map
 
 log = logging.getLogger(__name__)
@@ -127,6 +127,101 @@ async def build_context_for_question(
                 parts.append(f"*On sub-question: {child.summary} (`{child.id}`)*")
                 parts.append(await format_page(j))
                 parts.append("")
+
+    return "\n".join(parts), loaded_ids
+
+
+async def format_question_for_scout(
+    question_id: str, db: DB,
+) -> tuple[str, list[str]]:
+    """Build scout working context with role-aware display.
+
+    Direct considerations/children are shown compactly (summary only).
+    Structural ones are shown expanded (full content).
+    Judgements are always expanded.
+
+    Returns (context_text, loaded_page_ids).
+    """
+    question = await db.get_page(question_id)
+    if not question:
+        return f"[Question {question_id} not found]", []
+
+    loaded_ids = [question_id]
+    parts = ["# Scope Question", ""]
+    parts.append(await format_page(question))
+    parts.append("")
+
+    considerations = await db.get_considerations_for_question(question_id)
+    direct_cons = [(p, l) for p, l in considerations if l.role == LinkRole.DIRECT]
+    structural_cons = [(p, l) for p, l in considerations if l.role == LinkRole.STRUCTURAL]
+
+    children_with_links = await db.get_child_questions_with_links(question_id)
+    direct_children = [(p, l) for p, l in children_with_links if l.role == LinkRole.DIRECT]
+    structural_children = [(p, l) for p, l in children_with_links if l.role == LinkRole.STRUCTURAL]
+
+    if direct_cons or direct_children:
+        parts.append("## Direct Considerations (compact)")
+        parts.append(
+            "These pages directly bear on the answer. They are shown in compact form "
+            "so you know what ground is already covered -- avoid redundant claims."
+        )
+        parts.append("")
+        for claim, link in direct_cons:
+            loaded_ids.append(claim.id)
+            parts.append(
+                f"- [strength {link.strength:.1f}] {claim.summary} (ID: {claim.id})"
+            )
+        for child, link in direct_children:
+            loaded_ids.append(child.id)
+            parts.append(f"- [sub-Q] {child.summary} (ID: {child.id})")
+        parts.append("")
+
+    if structural_cons or structural_children:
+        parts.append("## Structural Considerations (expanded)")
+        parts.append(
+            "These pages frame the investigation -- they indicate what evidence and "
+            "angles still need to be explored. Read them to understand what bears "
+            "on the question and in which direction."
+        )
+        parts.append("")
+        for claim, link in structural_cons:
+            loaded_ids.append(claim.id)
+            parts.append(f"### [{claim.page_type.value.upper()}] {claim.summary}")
+            parts.append(f"ID: {claim.id}")
+            parts.append(f"Strength: {link.strength:.1f}/5")
+            parts.append("")
+            parts.append(claim.content)
+            parts.append("")
+        for child, link in structural_children:
+            loaded_ids.append(child.id)
+            parts.append(f"### [QUESTION] {child.summary}")
+            parts.append(f"ID: {child.id}")
+            parts.append("")
+            parts.append(child.content)
+            parts.append("")
+
+    judgements = await db.get_judgements_for_question(question_id)
+    if judgements:
+        parts.append("## Existing Judgements")
+        parts.append("")
+        for j in judgements:
+            loaded_ids.append(j.id)
+            parts.append(await format_page(j))
+            parts.append("")
+
+    children = await db.get_child_questions(question_id)
+    child_judgements = []
+    for child in children:
+        for j in await db.get_judgements_for_question(child.id):
+            child_judgements.append((child, j))
+    if child_judgements:
+        parts.append("## Sub-question Judgements")
+        parts.append("")
+        for child, j in child_judgements:
+            loaded_ids.append(j.id)
+            parts.append(f"*On sub-question: {child.summary} (`{child.id}`)*")
+            parts.append(await format_page(j))
+            parts.append("")
 
     return "\n".join(parts), loaded_ids
 

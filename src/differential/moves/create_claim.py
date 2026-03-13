@@ -1,6 +1,7 @@
 """CREATE_CLAIM move: create an assertion with supporting reasoning."""
 
 import logging
+from typing import Any
 
 from pydantic import Field
 
@@ -20,6 +21,9 @@ log = logging.getLogger(__name__)
 
 
 class CreateClaimPayload(CreatePagePayload):
+    source_id: str | None = Field(
+        None, description="Source page ID — set when extracting claims from a source"
+    )
     links: list[ConsiderationLinkFields] = Field(
         default_factory=list,
         description=(
@@ -27,6 +31,12 @@ class CreateClaimPayload(CreatePagePayload):
             "the new claim to a question with a strength rating."
         ),
     )
+
+    def page_extra_fields(self) -> dict[str, Any]:
+        extra = super().page_extra_fields()
+        if self.source_id is not None:
+            extra["source_id"] = self.source_id
+        return extra
 
 
 async def execute(payload: CreateClaimPayload, call: Call, db: DB) -> MoveResult:
@@ -49,6 +59,7 @@ async def execute(payload: CreateClaimPayload, call: Call, db: DB) -> MoveResult
             link_type=LinkType.CONSIDERATION,
             strength=link_spec.strength,
             reasoning=link_spec.reasoning,
+            role=link_spec.role,
         ))
         log.info(
             "Inline consideration linked: %s -> %s (%.1f)",

@@ -1,6 +1,7 @@
 """CREATE_JUDGEMENT move: create a considered position on a question."""
 
 import logging
+from typing import Any
 
 from pydantic import Field
 
@@ -20,6 +21,12 @@ log = logging.getLogger(__name__)
 
 
 class CreateJudgementPayload(CreatePagePayload):
+    key_dependencies: str | None = Field(
+        None, description="What this judgement most depends on"
+    )
+    sensitivity_analysis: str | None = Field(
+        None, description="What would shift this judgement, and in which direction"
+    )
     links: list[ConsiderationLinkFields] = Field(
         default_factory=list,
         description=(
@@ -28,6 +35,14 @@ class CreateJudgementPayload(CreatePagePayload):
             "existing question, with a strength rating."
         ),
     )
+
+    def page_extra_fields(self) -> dict[str, Any]:
+        extra = super().page_extra_fields()
+        if self.key_dependencies is not None:
+            extra["key_dependencies"] = self.key_dependencies
+        if self.sensitivity_analysis is not None:
+            extra["sensitivity_analysis"] = self.sensitivity_analysis
+        return extra
 
 
 async def execute(payload: CreateJudgementPayload, call: Call, db: DB) -> MoveResult:
@@ -50,6 +65,7 @@ async def execute(payload: CreateJudgementPayload, call: Call, db: DB) -> MoveRe
             link_type=LinkType.CONSIDERATION,
             strength=link_spec.strength,
             reasoning=link_spec.reasoning,
+            role=link_spec.role,
         ))
         log.info(
             "Inline judgement linked: %s -> %s (%.1f)",

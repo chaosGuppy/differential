@@ -8,6 +8,7 @@ def _append_move(state: MoveState, move_type: MoveType = MoveType.LOAD_PAGE):
     """Simulate what MoveDef.bind does when a tool executes."""
     state.moves.append(Move(move_type=move_type, payload={}))
     state.move_created_ids.append([])
+    state.move_trace_extras.append({})
 
 
 async def test_take_new_moves_returns_moves_since_last_drain(tmp_db, scout_call):
@@ -16,14 +17,16 @@ async def test_take_new_moves_returns_moves_since_last_drain(tmp_db, scout_call)
 
     _append_move(state)
     _append_move(state)
-    moves_r1, created_r1 = state.take_new_moves()
+    moves_r1, created_r1, extras_r1 = state.take_new_moves()
     assert len(moves_r1) == 2
     assert len(created_r1) == 2
+    assert len(extras_r1) == 2
 
     _append_move(state)
-    moves_r2, created_r2 = state.take_new_moves()
+    moves_r2, created_r2, extras_r2 = state.take_new_moves()
     assert len(moves_r2) == 1
     assert len(created_r2) == 1
+    assert len(extras_r2) == 1
 
     assert len(state.moves) == 3
 
@@ -35,9 +38,10 @@ async def test_take_new_moves_returns_empty_when_no_new_moves(tmp_db, scout_call
     _append_move(state)
     state.take_new_moves()
 
-    moves, created = state.take_new_moves()
+    moves, created, extras = state.take_new_moves()
     assert moves == []
     assert created == []
+    assert extras == []
 
 
 async def test_take_new_moves_works_from_nonzero_start(tmp_db, scout_call):
@@ -48,10 +52,10 @@ async def test_take_new_moves_works_from_nonzero_start(tmp_db, scout_call):
     _append_move(state, MoveType.LOAD_PAGE)
     _append_move(state, MoveType.CREATE_QUESTION)
 
-    moves, _ = state.take_new_moves()
+    moves, _, _ = state.take_new_moves()
     assert [m.move_type for m in moves] == [
         MoveType.CREATE_CLAIM, MoveType.LOAD_PAGE, MoveType.CREATE_QUESTION,
     ]
 
-    moves2, _ = state.take_new_moves()
+    moves2, _, _ = state.take_new_moves()
     assert moves2 == []

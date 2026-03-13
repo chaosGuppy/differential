@@ -7,25 +7,18 @@ from pydantic import BaseModel, Field
 
 from differential.calls.common import (
     ReviewResponse,
-    RunCallResult,
-    _execute_review_links,
-    _format_loaded_pages,
     _prepare_tools,
-    _run_initial_page_loading,
-    auto_unlink_unhelpful_pages,
     complete_call,
-    extract_loaded_page_ids,
-    format_moves_for_review,
     log_page_ratings,
     resolve_page_refs,
     run_agent_loop,
-    run_call,
-    run_closing_review,
+    run_single_call,
 )
 from differential.context import (
     assemble_call_context,
-    build_context_for_question,
+    format_page,
     format_preloaded_pages,
+    format_question_for_scout,
 )
 from differential.database import DB
 from differential.llm import (
@@ -120,96 +113,70 @@ async def _run_fruit_check(
     return 5
 
 
-async def run_scout(
+_LINKING_TASK = (
+    'Review the workspace and link relevant existing pages to the scope question.\n\n'
+    'For each link, specify a role:\n'
+    '- **direct**: "Now I know X, I can immediately update my answer." The page '
+    'directly bears on the answer to the scope question — it is evidence, a '
+    'counter-argument, or a partial answer.\n'
+    '- **structural**: "Now I know X, I know better what evidence and angles to '
+    'consider." The page frames the investigation — it indicates what to look '
+    'for, how to decompose the question, or what dimensions matter.\n\n'
+    'Link claims as considerations and sub-questions as child questions.\n\n'
+    'Be discerning. Only link pages that genuinely bear on this question — '
+    'tangential or weakly related pages should not be linked. '
+    'Do not duplicate any links already shown above. '
+    'Create no more than 6 new links, and fewer if fewer are warranted — '
+    'do not force links just to fill a quota.\n\n'
+    'Scope question ID: `{question_id}`'
+)
+
+
+async def link_new_pages(
     question_id: str,
     call: Call,
     db: DB,
-    mode: ScoutMode = ScoutMode.ABSTRACT,
-    broadcaster=None,
-    max_rounds: int | None = None,
-    fruit_threshold: int | None = None,
-) -> tuple[RunCallResult, dict]:
-    """Run a Scout call on a question.
+    state: MoveState,
+    trace: CallTrace,
+) -> None:
+    """Single LLM call that reviews the workspace and creates direct/structural links.
 
-    Returns (run_call_result, review_dict).
+    Uses only LINK_CONSIDERATION and LINK_CHILD_QUESTION tools with role fields.
+    Free (not counted against budget).
     """
-    call.call_params = {"mode": mode.value}
-    if max_rounds is not None:
-        call.call_params["max_rounds"] = max_rounds
-    if fruit_threshold is not None:
-        call.call_params["fruit_threshold"] = fruit_threshold
-    trace = CallTrace(call.id, db, broadcaster=broadcaster)
-    log.info(
-        "Scout starting: call=%s, question=%s, mode=%s",
-        call.id[:8], question_id[:8], mode.value,
+    question = await db.get_page(question_id)
+    if not question:
+        return
+
+    workspace_map, _ = await build_workspace_map(db)
+    question_text = await format_page(question)
+    existing_links = await _build_link_inventory(question_id, db)
+    working_context = (
+        workspace_map + '\n\n---\n\n'
+        '# Scope Question\n\n' + question_text
+        + '\n\n' + existing_links
     )
 
-    working_context, working_page_ids = await build_context_for_question(
-        question_id, db,
+    linking_tools = [
+        MOVES[MoveType.LINK_CONSIDERATION].bind(state),
+        MOVES[MoveType.LINK_CHILD_QUESTION].bind(state),
+    ]
+    task = _LINKING_TASK.format(question_id=question_id)
+    system_prompt = build_system_prompt(CallType.SCOUT.value)
+    user_message = build_user_message(working_context, task)
+
+    await run_single_call(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        tools=linking_tools,
+        call_id=call.id,
+        phase="link_new_pages",
+        db=db,
+        state=state,
+        trace=trace,
+        max_tokens=2048,
     )
 
-    preloaded = call.context_page_ids or []
-    if preloaded:
-        working_context += await format_preloaded_pages(preloaded, db)
-
-    await trace.record(ContextBuiltEvent(
-        working_context_page_ids=await resolve_page_refs(working_page_ids, db),
-        preloaded_page_ids=await resolve_page_refs(preloaded, db),
-        scout_mode=mode.value,
-    ))
-
-    mode_instruction = _CONCRETE_INSTRUCTION if mode == ScoutMode.CONCRETE else ''
-    task = (
-        f"Scout for missing considerations on this question.{mode_instruction}\n\n"
-        f"Question ID (use this when linking considerations): `{question_id}`"
-    )
-
-    await db.update_call_status(call.id, CallStatus.RUNNING)
-    result = await run_call(
-        CallType.SCOUT, task, working_context, call, db, trace=trace,
-    )
-    phase2_loaded = await extract_loaded_page_ids(result, db)
-
-    all_loaded_summaries = list(result.loaded_page_summaries)
-    for pid in phase2_loaded:
-        page = await db.get_page(pid)
-        if page:
-            all_loaded_summaries.append((pid, page.summary))
-    for pid in preloaded:
-        page = await db.get_page(pid)
-        if page and not any(s[0] == pid for s in all_loaded_summaries):
-            all_loaded_summaries.append((pid, page.summary))
-
-    review_context = format_moves_for_review(result.moves)
-    review = await run_closing_review(
-        call, review_context, working_context, all_loaded_summaries, db, trace,
-        scope_question_id=question_id,
-    )
-    remaining_fruit = 5
-    if not review.error:
-        remaining_fruit = review.data.get("remaining_fruit", 5)
-        log.info(
-            "Scout review: remaining_fruit=%d, confidence=%s",
-            remaining_fruit, review.data.get("confidence_in_output", "?"),
-        )
-        await log_page_ratings(review.data, db)
-        await trace.record(ReviewCompleteEvent(
-            remaining_fruit=remaining_fruit,
-            confidence=review.data.get("confidence_in_output"),
-        ))
-        await auto_unlink_unhelpful_pages(review.data, call.scope_page_id, db)
-
-    call.review_json = review.data
-    log.info(
-        "Scout complete: call=%s, pages_created=%d, fruit=%d",
-        call.id[:8], len(result.created_page_ids), remaining_fruit,
-    )
-    await complete_call(
-        call,
-        db,
-        f"Scout complete. Created {len(result.created_page_ids)} pages. Remaining fruit: {remaining_fruit}",
-    )
-    return result, review.data
 
 
 def _resolve_round_mode(mode: ScoutMode, round_index: int) -> ScoutMode:
@@ -226,12 +193,24 @@ _CONTINUE_TEMPLATE = (
     'Question ID: `{question_id}`'
 )
 
-_REVIEW_INSTRUCTION = (
-    'You have finished scouting. Now perform your closing review. '
-    'Do not call any tools — they will have no effect here.\n\n'
-    'For each page that was loaded into your context (listed in your working '
-    'context), rate how helpful it was. For helpful pages (score 1 or 2), '
-    'include a link to connect it to the scope question.\n\n'
+_LINK_REVIEW_INSTRUCTION = (
+    'You have finished scouting. Before your self-assessment, review the '
+    'links on the scope question.\n\n'
+    'For each link below, decide whether it should stay as-is, have its '
+    'role changed (direct ↔ structural), or be removed entirely.\n\n'
+    '- **direct**: the linked page directly bears on the answer.\n'
+    '- **structural**: the linked page frames what evidence/angles to explore.\n'
+    '- **remove**: the link is no longer relevant or useful.\n\n'
+    'Use `change_link_role` to switch a link between direct and structural. '
+    'Use `remove_link` to delete a link that should not exist. '
+    'Leave links alone if they are already correct.\n\n'
+    '{link_inventory}\n\n'
+    'Scope question ID: `{question_id}`'
+)
+
+_SELF_ASSESSMENT_INSTRUCTION = (
+    'Now provide your self-assessment. Do not call any tools — they will '
+    'have no effect here.\n\n'
     'Scope question ID: `{question_id}`'
 )
 
@@ -261,13 +240,16 @@ async def _build_session_context(
 ) -> _SessionContext:
     """Build all context needed for a scout session.
 
-    Runs phase-1 page loading, assembles phase-2 context, and prepares tools.
+    Runs a linking call to tag existing pages as direct/structural, then
+    builds role-aware context for the scout.
     """
     trace = CallTrace(call.id, db, broadcaster=broadcaster)
     state = MoveState(call, db)
     system_prompt = build_system_prompt(CallType.SCOUT.value)
 
-    working_context, working_page_ids = await build_context_for_question(
+    await link_new_pages(question_id, call, db, state, trace)
+
+    working_context, working_page_ids = await format_question_for_scout(
         question_id, db,
     )
 
@@ -281,38 +263,9 @@ async def _build_session_context(
         scout_mode=mode.value,
     ))
 
-    last_call_time = await db.get_last_successful_call_time(
-        CallType.SCOUT, question_id,
-    )
-
-    phase1_ids: list[str] = []
-    if last_call_time:
-        filtered_map, filtered_ids = await build_workspace_map(
-            db, created_after=last_call_time,
-        )
-        if filtered_ids:
-            phase1_ids = await _run_initial_page_loading(
-                system_prompt, working_context, filtered_map,
-                call.id, state, db, trace=trace,
-            )
-    else:
-        full_map_for_phase1, _ = await build_workspace_map(db)
-        phase1_ids = await _run_initial_page_loading(
-            system_prompt, working_context, full_map_for_phase1,
-            call.id, state, db, trace=trace,
-        )
-
-    extra_pages_text: str | None = None
-    phase1_summaries: list[tuple[str, str]] = []
-    if phase1_ids:
-        extra_pages_text, phase1_summaries = await _format_loaded_pages(
-            phase1_ids, db,
-        )
-
     workspace_map, _ = await build_workspace_map(db)
     phase2_context = assemble_call_context(
         working_context, workspace_map=workspace_map,
-        extra_pages_text=extra_pages_text,
     )
 
     tools = [MOVES[mt].bind(state) for mt in MoveType]
@@ -333,7 +286,7 @@ async def _build_session_context(
         tool_defs=tool_defs,
         state=state,
         trace=trace,
-        phase1_summaries=phase1_summaries,
+        phase1_summaries=[],
         preloaded_ids=preloaded,
     )
 
@@ -370,6 +323,30 @@ async def _collect_all_loaded_summaries(
     return summaries
 
 
+async def _build_link_inventory(question_id: str, db: DB) -> str:
+    """Build a text inventory of all links to/from the scope question."""
+    considerations = await db.get_considerations_for_question(question_id)
+    children_with_links = await db.get_child_questions_with_links(question_id)
+
+    if not considerations and not children_with_links:
+        return "No existing links on the scope question."
+
+    lines = ["### Current Links"]
+    for page, link in considerations:
+        lines.append(
+            f"- [{link.role.value}] consideration: "
+            f'"{page.summary}" '
+            f"(strength {link.strength:.1f}, link_id: `{link.id}`)"
+        )
+    for page, link in children_with_links:
+        lines.append(
+            f"- [{link.role.value}] child_question: "
+            f'"{page.summary}" '
+            f"(link_id: `{link.id}`)"
+        )
+    return "\n".join(lines)
+
+
 async def _run_session_review(
     question_id: str,
     call: Call,
@@ -379,52 +356,71 @@ async def _run_session_review(
     tool_defs: list[dict],
     resume_messages: list[dict],
     loaded_summaries: list[tuple[str, str]],
+    state: MoveState,
     trace: CallTrace,
 ) -> dict:
     """Run the closing review for a scout session.
 
-    Appends a review instruction to the agent's conversation and calls
-    structured_call with the same system prompt and tools for cache reuse.
-    Processes page ratings, links, and auto-unlinking.
+    Two phases:
+    1. Link modification — agent loop with remove_link and change_link_role
+       tools, given an inventory of all current links on the scope question.
+    2. Self-assessment — structured call for remaining_fruit, confidence,
+       page ratings, etc.
+
     Returns the review data dict.
     """
+    link_inventory = await _build_link_inventory(question_id, db)
+    link_review_msg = _LINK_REVIEW_INSTRUCTION.format(
+        link_inventory=link_inventory, question_id=question_id,
+    )
+    link_messages = list(resume_messages) + [
+        {"role": "user", "content": link_review_msg},
+    ]
+
+    link_tools = [MOVES[mt].bind(state) for mt in MoveType]
+
+    link_result = await run_single_call(
+        system_prompt,
+        tools=link_tools,
+        call_id=call.id,
+        phase="link_review",
+        db=db,
+        state=state,
+        trace=trace,
+        messages=link_messages,
+        cache=True,
+    )
+    post_link_messages = list(link_result.messages)
+
     page_rating_note = ""
     if loaded_summaries:
         page_lines = [
             f'  - `{pid[:8]}`: "{summary[:120]}"'
             for pid, summary in loaded_summaries
         ]
-        scope_note = (
-            '\n\nFor each page you rate as helpful (1) or very helpful (2), '
-            'include a link in the `links` field to connect it to the scope '
-            f'question `{question_id[:8]}`. Use link_type "consideration" '
-            'for claims (with strength), "child_question" for '
-            'sub-questions, or "related" for other page types.'
-        )
         page_rating_note = (
             '\n\nThe following pages were loaded into your context:\n'
             + '\n'.join(page_lines)
             + '\n\nPlease include a rating for each in your page_ratings. '
             'Scores: -1 = actively confusing, 0 = didn\'t help, '
             '1 = helped, 2 = extremely helpful.'
-            + scope_note
         )
 
-    review_instruction = (
-        _REVIEW_INSTRUCTION.format(question_id=question_id)
+    assessment_msg = (
+        _SELF_ASSESSMENT_INSTRUCTION.format(question_id=question_id)
         + page_rating_note
     )
-    review_messages = list(resume_messages) + [
-        {"role": "user", "content": review_instruction},
+    assessment_messages = post_link_messages + [
+        {"role": "user", "content": assessment_msg},
     ]
     meta = LLMExchangeMetadata(
         call_id=call.id, phase="closing_review", trace=trace,
-        user_message=review_instruction,
+        user_message=assessment_msg,
     )
     review_result = await structured_call(
         system_prompt=system_prompt,
         response_model=ReviewResponse,
-        messages=review_messages,
+        messages=assessment_messages,
         tools=tool_defs,
         max_tokens=4096,
         metadata=meta,
@@ -440,17 +436,11 @@ async def _run_session_review(
         )
         await log_page_ratings(review_data, db)
 
-        review_links = review_data.get("links", [])
-        if review_links:
-            await _execute_review_links(review_links, question_id, db)
-
         for r in review_data.get("page_ratings", []):
             pid = await db.resolve_page_id(r.get("page_id", ""))
             score = r.get("score")
             if pid and isinstance(score, int):
                 await db.save_page_rating(pid, call.id, score, r.get("note", ""))
-
-        await auto_unlink_unhelpful_pages(review_data, call.scope_page_id, db)
 
     call.review_json = review_data
     return review_data
@@ -473,7 +463,14 @@ async def run_scout_session(
     uses lightweight fruit checks, and runs linking once at the end.
     Returns (rounds_completed, created_page_ids).
     """
-    await db.update_call_status(call.id, CallStatus.RUNNING)
+    call.call_params = {
+        "mode": mode.value,
+        "max_rounds": max_rounds,
+        "fruit_threshold": fruit_threshold,
+    }
+    await db.update_call_status(
+        call.id, CallStatus.RUNNING, call_params=call.call_params,
+    )
 
     ctx = await _build_session_context(
         question_id, call, db,
@@ -548,6 +545,7 @@ async def run_scout_session(
             tool_defs=ctx.tool_defs,
             resume_messages=resume_messages,
             loaded_summaries=loaded_summaries,
+            state=ctx.state,
             trace=ctx.trace,
         )
         await ctx.trace.record(ReviewCompleteEvent(

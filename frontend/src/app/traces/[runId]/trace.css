@@ -364,7 +364,42 @@
 .trace-move-supersede { color: #b33; }
 .trace-move-hypothesis { color: #b87c1e; }
 .trace-move-load { color: #5b9ea6; }
+.trace-move-change { color: #8b6cc1; }
+.trace-move-remove { color: #b33; }
 .trace-move-default { color: #777; }
+
+.trace-role-change-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: #555;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.trace-role-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+}
+
+.trace-role-badge-direct {
+  background: #e8f0fe;
+  color: #1a5fb4;
+}
+
+.trace-role-badge-structural {
+  background: #fef3e2;
+  color: #a66a00;
+}
+
+.trace-role-arrow {
+  color: #999;
+  font-size: 12px;
+}
 
 .trace-move-summary {
   font-size: 13px;
@@ -854,8 +889,24 @@
   .trace-move-supersede { color: #e55; }
   .trace-move-hypothesis { color: #d4a030; }
   .trace-move-load { color: #7bbec6; }
+  .trace-move-change { color: #b49ae0; }
+  .trace-move-remove { color: #e55; }
   .trace-move-default { color: #888; }
   .trace-move-summary { color: #bbb; }
+
+  .trace-role-change-detail { color: #aaa; }
+
+  .trace-role-badge-direct {
+    background: #1e2d4a;
+    color: #7baaf7;
+  }
+
+  .trace-role-badge-structural {
+    background: #3a2e1a;
+    color: #e0a840;
+  }
+
+  .trace-role-arrow { color: #666; }
 
   .trace-exchange-info { color: #888; }
   .trace-token-meter { color: #666; }
