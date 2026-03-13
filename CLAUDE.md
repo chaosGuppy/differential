@@ -4,14 +4,14 @@ An LLM-powered research workspace. Users pose questions, and the system recursiv
 
 ## Running
 
-Requires `ANTHROPIC_API_KEY` in environment. Uses `anthropic` Python SDK and `claude-opus-4-6`. Environment managed with `uv`. Data is stored in Supabase — local by default, or production with `--prod-db`.
+Requires `ANTHROPIC_API_KEY` in environment. Uses `anthropic` Python SDK and `claude-opus-4-6`. Environment managed with `uv`. Data is stored in Supabase — local by default, or production with `--prod`.
 
 ```bash
 # New investigation
 uv run python main.py "Your question here" --budget 20
 
 # Use production database (any command)
-uv run python main.py --prod-db "Your question here" --budget 20
+uv run python main.py --prod "Your question here" --budget 20
 
 # Continue existing question
 uv run python main.py --continue QUESTION_ID --budget 10
@@ -40,7 +40,7 @@ uv run python main.py --list-workspaces
 
 Tests: `uv run pytest`. Optional dependency: `pypdf` for PDF ingestion (`uv sync --extra pdf`).
 
-**Database:** Runs against local Supabase by default (`supabase start`). Pass `--prod-db` to any command to target production. Production requires `SUPABASE_PROD_URL` and `SUPABASE_PROD_KEY` (service_role) in `.env`. Migrations live in `supabase/migrations/` and are pushed to prod with `supabase db push`.
+**Database:** Runs against local Supabase by default (`supabase start`). Pass `--prod` to any command to target production. Production requires `SUPABASE_PROD_URL` and `SUPABASE_PROD_KEY` (service_role) in `.env`. Migrations live in `supabase/migrations/` and are pushed to prod with `supabase db push`.
 Always use the supabase cli to create new migrations: `supabase migration new`.
 
 ## Architecture
@@ -82,7 +82,7 @@ Each call ends with a closing review that produces `remaining_fruit` (0-10 scale
 
 ## Key Conventions
 
-- **NEVER pass `--prod-db` when running `main.py` unless the user explicitly asks you to.** The production database contains real research data. Default to the local database for all testing, development, and exploratory runs.
+- **NEVER pass `--prod` when running `main.py` unless the user explicitly asks you to.** The production database contains real research data. Default to the local database for all testing, development, and exploratory runs.
 - **Never run `supabase db reset`** — this wipes the database and is destructive. To apply pending migrations, use `supabase migration up` instead. If you find yourself wanting to reset the database, stop and ask the user first.
 - Always scope your test runs to a temp/scratch workspace, e.g. `uv run main.py "Is the sky blue?" --workspace skyblue-scratch`
 

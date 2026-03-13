@@ -11,12 +11,12 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     differential_test_mode: str = ""
-    differential_prod_db: str = ""
     differential_smoke_test: str = ""
+    use_prod_db: str = ""
     tracing_enabled: bool = True
 
-    supabase_url: str = "http://127.0.0.1:54321"
-    supabase_key: str = (
+    supabase_local_url: str = "http://127.0.0.1:54321"
+    supabase_local_key: str = (
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
         "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0."
         "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     @property
     def is_prod_db(self) -> bool:
-        return self.differential_prod_db.lower() in ("1", "true")
+        return self.use_prod_db.lower() in ("1", "true")
 
     def get_supabase_credentials(self, prod: bool = False) -> tuple[str, str]:
         if prod:
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
                     "SUPABASE_PROD_URL and SUPABASE_PROD_KEY must be set for production."
                 )
             return self.supabase_prod_url, self.supabase_prod_key
-        return self.supabase_url, self.supabase_key
+        return self.supabase_local_url, self.supabase_local_key
 
     def require_anthropic_key(self) -> str:
         if not self.anthropic_api_key:

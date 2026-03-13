@@ -295,11 +295,9 @@ async def get_llm_exchange(exchange_id: str):
 
 @app.get("/api/realtime/config", response_model=RealtimeConfigOut)
 def get_realtime_config():
-    url = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
-    anon_key = os.environ.get(
-        "SUPABASE_ANON_KEY",
-        "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
-    )
+    settings = get_settings()
+    url, key = settings.get_supabase_credentials(prod=settings.is_prod_db)
+    anon_key = os.environ.get("SUPABASE_ANON_KEY", key)
     return RealtimeConfigOut(url=url, anon_key=anon_key)
 
 
