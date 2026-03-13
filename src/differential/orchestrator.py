@@ -216,14 +216,9 @@ def _create_broadcaster(db: DB) -> Broadcaster | None:
     """Create a broadcaster for the given DB's run_id, or None if disabled."""
     if os.environ.get("DIFFERENTIAL_TEST_MODE"):
         return None
-    supabase_url = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
-    supabase_key = os.environ.get(
-        "SUPABASE_KEY",
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-        "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0."
-        "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
-    )
-    return Broadcaster(db.run_id, supabase_url, supabase_key)
+    settings = get_settings()
+    url, key = settings.get_supabase_credentials(prod=settings.is_prod_db)
+    return Broadcaster(db.run_id, url, key)
 
 
 class Orchestrator:

@@ -453,7 +453,7 @@ async def async_main():
         help="Smoke-test mode: use Haiku, fewer rounds, lower budget defaults",
     )
     parser.add_argument(
-        "--prod-db",
+        "--prod",
         dest="prod_db",
         action="store_true",
         help="Use production Supabase (requires SUPABASE_PROD_URL and SUPABASE_PROD_KEY)",
@@ -486,6 +486,8 @@ async def async_main():
 
     if args.smoke_test:
         get_settings().differential_smoke_test = "1"
+    if args.prod_db:
+        get_settings().use_prod_db = "1"
     if args.no_trace:
         get_settings().tracing_enabled = False
 
