@@ -71,7 +71,7 @@ def _row_to_link(row: dict[str, Any]) -> PageLink:
         ),
         strength=row["strength"],
         reasoning=row["reasoning"] or "",
-        role=LinkRole(row.get("role", "structural")),
+        role=LinkRole(row.get("role", "direct")),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
