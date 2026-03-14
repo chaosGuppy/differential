@@ -220,7 +220,7 @@ class PageLink(BaseModel):
     direction: ConsiderationDirection | None = None  # for CONSIDERATION links
     strength: float = 2.5  # 0-5
     reasoning: str = ""
-    role: LinkRole = LinkRole.STRUCTURAL
+    role: LinkRole = LinkRole.DIRECT
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
